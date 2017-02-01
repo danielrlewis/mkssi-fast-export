@@ -3,7 +3,7 @@
 #include "gram.h"
 #include "lex.h"
 
-extern void yyerror(yyscan_t scanner, struct rcs_file *rcs, const char *msg);
+extern void yyerror(yyscan_t scanner, struct rcs_file *file, const char *msg);
 extern YY_DECL;
 %}
 
@@ -213,7 +213,7 @@ text : TEXT TEXT_DATA
 %%
 
 void
-yyerror(yyscan_t scanner, struct rcs_file *rcs, const char *msg)
+yyerror(yyscan_t scanner, struct rcs_file *file, const char *msg)
 {
 	fatal_error("parse error %s at %s\n", msg, yyget_text(scanner));
 }

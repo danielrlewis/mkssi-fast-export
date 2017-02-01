@@ -42,6 +42,7 @@ static struct rcs_file *
 import_rcs_file(const char *relative_path)
 {
 	struct rcs_file *file;
+	struct stat buf;
 	yyscan_t scanner;
 	FILE *in;
 	int err;
@@ -51,6 +52,16 @@ import_rcs_file(const char *relative_path)
 		strlen(relative_path) + 1, __func__);
 	sprintf(file->master_name, "%s/%s", mkssi_dir_path, relative_path);
 	file->name = xstrdup(relative_path, __func__);
+
+	/* Lexer/parser do not like empty files */
+	if (stat(file->master_name, &buf))
+		fatal_system_error("cannot stat \"%s\"", file->master_name);
+	if (!buf.st_size) {
+		file->corrupt = true;
+		fprintf(stderr, "warning: RCS file \"%s\" is empty\n",
+				file->master_name);
+		return file;
+	}
 
 	if (!(in = fopen(file->master_name, "r")))
 		fatal_system_error("cannot open \"%s\"", file->master_name);
@@ -68,7 +79,7 @@ import_rcs_file(const char *relative_path)
 		if (file->corrupt)
 			/*
 			 * It would be nice if this was a fatal error, but at
-			 * least one project seems to have this problem...
+			 * some projects seem to have such problems...
 			 */
 			fprintf(stderr, "warning: RCS file \"%s\" is corrupt\n",
 				file->master_name);
