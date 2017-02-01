@@ -5,19 +5,6 @@
 #include <ctype.h>
 #include "interfaces.h"
 
-/* print a progress message */
-void
-progress_println(const char *fmt, ...)
-{
-	va_list args;
-
-	printf("progress - "); /* git fast-import progress command */
-	va_start(args, fmt);
-	vprintf(fmt, args);
-	va_end(args);
-	printf("\n");
-}
-
 /* print error message, errno string (if errno != 0), and exit */
 void
 fatal_system_error(const char *fmt, ...)
@@ -106,6 +93,17 @@ string_is_upper(const char *s)
 	return true;
 }
 
+/* is a character a hexadecimal digit */
+bool
+is_hex_digit(char c)
+{
+	if (c >= '0' && c <= '9')
+		return true;
+	if ((c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))
+		return true;
+	return false;
+}
+
 /* like malloc(), but abort on failure */
 void *
 xmalloc(size_t size, const char *legend)
@@ -153,17 +151,6 @@ xstrdup(const char *s, const char *legend)
 		fatal_system_error("Out of memory, strdup(\"%s\") failed in %s",
 			s, legend);
 	return ret;
-}
-
-/* is a character a hexadecimal digit */
-static bool
-is_hex_digit(char c)
-{
-	if (c >= '0' && c <= '9')
-		return true;
-	if ((c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))
-		return true;
-	return false;
 }
 
 /* sanitize a character from an MKSSI branch name; -1 return means skip char */

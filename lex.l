@@ -96,7 +96,7 @@ YY_DECL;
  * the heap.
  */
 struct varbuf {
-	int max, cur;
+	unsigned int max, cur;
 	char *string;
 	char buf[1024];
 };
@@ -135,7 +135,9 @@ varbuf_free(struct varbuf *buf)
 static char *
 varbuf_dup(struct varbuf *buf, const char *legend)
 {
-	char *dup = xmalloc(buf->cur, legend);
+	char *dup;
+
+	dup = xmalloc(buf->cur, legend);
 	memcpy(dup, buf->string, buf->cur);
 	return dup;
 }
@@ -230,7 +232,7 @@ lex_date(const struct rcs_number *n, yyscan_t yyscanner, struct rcs_file *file)
 	tm.tm_hour = n->n[3];
 	tm.tm_min = n->n[4];
 	tm.tm_sec = n->n[5];
-	tm.tm_isdst = 0;
+	tm.tm_isdst = -1;
 	tm.tm_zone = 0;
 
 	d = mktime(&tm);

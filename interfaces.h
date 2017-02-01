@@ -45,6 +45,7 @@ struct rcs_branch {
 struct rcs_version {
 	struct rcs_version *next;
 	bool checkpointed; /* revision listed in a project checkpoint */
+	unsigned long blob_mark;
 
 	/* RCS metadata */
 	struct rcs_number number;
@@ -113,12 +114,17 @@ struct file_change_lists {
 	struct file_change *adds, *updates, *deletes;
 };
 
+/* represent a Git author */
+struct git_author {
+	const char *name; /* proper name, e.g., "John Doe" */
+	const char *email; /* email address, e.g., "johnd@example.com" */
+};
+
 /* represent a Git commit */
-struct commit {
-	struct commit *next;
+struct git_commit {
+	struct git_commit *next;
 	const char *branch;
-	const char *committer_name;
-	const char *committer_email;
+	struct git_author committer;
 	time_t date;
 	char *commit_msg;
 	struct file_change_lists changes;
@@ -138,8 +144,7 @@ void import(void);
 
 /* export.c */
 void export(void);
-const struct rcs_file_revision *find_checkpoint_file_revisions(
-	const struct rcs_number *pjrev);
+void export_progress(const char *fmt, ...);
 
 /* changeset.c */
 void changeset_build(const struct rcs_file_revision *old,
@@ -148,15 +153,14 @@ void changeset_build(const struct rcs_file_revision *old,
 void changeset_free(struct file_change_lists *changes);
 
 /* merge.c */
-struct commit *merge_changeset_into_commits(const char *branch,
+struct git_commit *merge_changeset_into_commits(const char *branch,
 	struct file_change_lists *changes, time_t cp_date);
-void free_commits(struct commit *commit_list);
+void free_commits(struct git_commit *commit_list);
 
 /* project.c */
-char *project_read_revision(const struct rcs_number *rev);
-struct rcs_file_revision *project_revision_read_files(const char *pjdata);
-void free_file_revision_list(struct rcs_file_revision *head);
-void project_read_checkpoints(void);
+void project_read_all_revisions(void);
+const struct rcs_file_revision *find_checkpoint_file_revisions(
+	const struct rcs_number *pjrev);
 
 /* lex.l */
 struct rcs_number lex_number(const char *s);
@@ -164,7 +168,10 @@ time_t lex_date(const struct rcs_number *n, void *yyscanner,
 	struct rcs_file *file);
 
 /* rcs.c */
-char *rcs_revision_read(struct rcs_file *file, const struct rcs_number *revnum);
+typedef void rcs_revision_data_handler_t(struct rcs_file *file,
+	const struct rcs_number *revnum, const char *data);
+void rcs_file_read_all_revisions(struct rcs_file *file,
+	rcs_revision_data_handler_t *callback);
 
 /* rcs-number.c */
 bool rcs_number_same_branch(const struct rcs_number *a,
@@ -187,6 +194,7 @@ char *time2string(time_t date);
 char *time2string_mkssi(time_t date);
 uint32_t hash_string(const char *s);
 bool string_is_upper(const char *s);
+bool is_hex_digit(char c);
 void *xmalloc(size_t size, const char *legend);
 void *xcalloc(size_t nmemb, size_t size, const char *legend);
 void *xrealloc(void *ptr, size_t size, const char *legend);

@@ -81,6 +81,39 @@ import_rcs_file(const char *relative_path)
 	return file;
 }
 
+/* Should a given file be ignored during the import process? */
+static bool
+ignore_file(const char *name)
+{
+	const char *dotpj;
+
+	/* Ignore dot and dot-dot for obvious reasons */
+	if (!strcmp(name, ".") || !strcmp(name, ".."))
+		return true;
+
+	/*
+	 * Ignore *.pj files: project.pj is imported separately, and other files
+	 * like "Copy of PROJECT.PJ" are not needed or wanted.
+	 */
+	dotpj = strcasestr(name, ".pj");
+	if (dotpj && !dotpj[3])
+		return true;
+
+	/*
+	 * MKSSI sometimes puts files like vc_04f4.000 or vc_09d5.000 in the
+	 * project directory, for its own unknown and unknowable purposes.
+	 * These files are large and sometimes have screwed up RCS metadata,
+	 * so ignore them.
+	 */
+	if (!strncmp(name, "vc_", 3) && is_hex_digit(name[3])
+	 && is_hex_digit(name[4]) && is_hex_digit(name[5])
+	 && is_hex_digit(name[6]) && !strcmp(&name[7], ".000")) {
+		return true;
+	}
+
+	return false;
+}
+
 /* import all RCS master files in given directory */
 static void
 import_rcs_files_in_dir(const char *relative_dir_path)
@@ -89,7 +122,6 @@ import_rcs_files_in_dir(const char *relative_dir_path)
 	DIR *dir;
 	struct dirent *de;
 	struct rcs_file *file;
-	const char *dotpj;
 
 	/* 1024 should be big enough for any file in this directory */
 	relative_path = xmalloc(strlen(mkssi_dir_path) + 1 +
@@ -113,20 +145,7 @@ import_rcs_files_in_dir(const char *relative_dir_path)
 			break;
 		}
 
-		if (!strcmp(de->d_name, ".") || !strcmp(de->d_name, ".."))
-			continue;
-
-		/*
-		 * MKSSI sometimes puts files like vc_04f4.000 or vc_09d5.000
-		 * in the project root directory, for its own unkown and
-		 * unknowable purposes.  We do not want these.
-		 */
-		if (!*relative_dir_path && !strncmp(de->d_name, "vc_", 3))
-			continue;
-
-		/* Some projects have *.pj files other than project.pj. */
-		dotpj = strcasestr(de->d_name, ".pj");
-		if (dotpj && !dotpj[3])
+		if (ignore_file(de->d_name))
 			continue;
 
 		if (*relative_dir_path)
@@ -134,10 +153,6 @@ import_rcs_files_in_dir(const char *relative_dir_path)
 				de->d_name);
 		else
 			strcpy(relative_path, de->d_name);
-
-		/* project.pj is special and thus imported separately */
-		if (!strcmp(relative_path, project->name))
-			continue;
 
 		if (de->d_type == DT_DIR)
 			import_rcs_files_in_dir(relative_path);
@@ -161,7 +176,7 @@ import_rcs_files_in_dir(const char *relative_dir_path)
 void
 import(void)
 {
-	progress_println("importing RCS master files from \"%s\"",
+	export_progress("importing RCS master files from \"%s\"",
 		mkssi_dir_path);
 
 	/* Import project.pj first, so we fail quickly if something is wrong. */

@@ -3,13 +3,11 @@
 #include <string.h>
 #include "interfaces.h"
 
-/* load the given revision of project.pj into memory */
-char *
-project_read_revision(const struct rcs_number *rev)
+/* validate that a string looks like a given revision of project.pj */
+static void
+validate_project_data(const struct rcs_number *revnum, const char *pjdata)
 {
-	char *pjdata, rev_str[11 + RCS_MAX_REV_LEN + 1];
-
-	pjdata = rcs_revision_read(project, rev);
+	char rev_str[11 + RCS_MAX_REV_LEN + 1];
 
 	/*
 	 * Sanity check: each revision of project.pj should start with "--MKS
@@ -18,18 +16,16 @@ project_read_revision(const struct rcs_number *rev)
 	if (strncmp(pjdata, "--MKS Project--\n", 16)
 	 && strncmp(pjdata, "--MKS Variant Project--\n", 24))
 		fatal_error("%s rev. %s is corrupt", project->master_name,
-			rcs_number_string_sb(rev));
+			rcs_number_string_sb(revnum));
 
 	/*
 	 * Sanity check: each revision of project.pj should include a string
 	 * with that revision number.
 	 */
-	sprintf(rev_str, "$Revision: %s", rcs_number_string_sb(rev));
+	sprintf(rev_str, "$Revision: %s", rcs_number_string_sb(revnum));
 	if (!strstr(pjdata, rev_str))
 		fatal_error("%s rev. %s is missing its revision marker",
-			project->master_name, rcs_number_string_sb(rev));
-
-	return pjdata;
+			project->master_name, rcs_number_string_sb(revnum));
 }
 
 /* find an RCS file in the hash table by name */
@@ -85,7 +81,7 @@ rcs_file_find(const char *name)
 }
 
 /* load file revision list from a revision of project.pj */
-struct rcs_file_revision *
+static struct rcs_file_revision *
 project_revision_read_files(const char *pjdata)
 {
 	const char flist_start_marker[] = "\nEndOptions\n";
@@ -234,18 +230,6 @@ project_revision_read_files(const char *pjdata)
 	return head;
 }
 
-/* free a linked list of file revisions */
-void
-free_file_revision_list(struct rcs_file_revision *head)
-{
-	struct rcs_file_revision *r, *next;
-
-	for (r = head; r; r = next) {
-		next = r->next;
-		free(r);
-	}
-}
-
 /* remove illegal characters and MKSSI encodings from branch names */
 static void
 sanitize_branch_name(char *branch_name)
@@ -387,61 +371,65 @@ project_revision_read_branches(struct rcs_symbol **branches, const char *pjdata)
 }
 
 static void
-examine_checkpoint(struct rcs_file_revision *frevs, const struct rcs_symbol *cp)
+mark_checkpointed_revisions(struct rcs_file_revision *frevs)
 {
 	struct rcs_version *ver;
 	struct rcs_file_revision *frev;
 
 	for (frev = frevs; frev; frev = frev->next) {
 		ver = rcs_file_find_version(frev->file, &frev->rev, false);
-		if (!ver) {
-			fprintf(stderr, "warning: checkpoint \"%s\" points at "
-				"nonexistent rev. %s of \"%s\"\n",
-				cp->symbol_name,
-				rcs_number_string_sb(&frev->rev),
-				frev->file->name);
-			continue;
-		}
-
-		ver->checkpointed = true;
+		if (ver)
+			ver->checkpointed = true;
 	}
 }
 
-void
-project_read_checkpoints(void)
+static void
+save_checkpoint_file_revisions(const struct rcs_number *pjrev,
+	const struct rcs_file_revision *frev_list)
 {
-	struct rcs_version *v;
-	struct rcs_symbol *cp;
 	struct cp_files *cpf;
+
+	cpf = xcalloc(1, sizeof *cpf, __func__);
+	cpf->pjver = rcs_file_find_version(project, pjrev, true);
+	cpf->frevs = frev_list;
+	cpf->next = cp_files;
+	cp_files = cpf;
+}
+
+const struct rcs_file_revision *
+find_checkpoint_file_revisions(const struct rcs_number *pjrev)
+{
+	const struct cp_files *cpf;
+
+	for (cpf = cp_files; cpf; cpf = cpf->next)
+		if (rcs_number_equal(&cpf->pjver->number, pjrev))
+			return cpf->frevs;
+	fatal_error("no saved file revision list for project rev. %s",
+		rcs_number_string_sb(pjrev));
+	return NULL; /* unreachable */
+}
+
+static void
+project_data_handler(struct rcs_file *file, const struct rcs_number *revnum,
+	const char *data)
+{
 	struct rcs_file_revision *frev_list;
-	char *pjdata;
 
-	progress_println("reading checkpointed project revisions");
+	export_progress("parsing project revision %s",
+		rcs_number_string_sb(revnum));
 
-	project_branches = NULL;
-	for (v = project->versions; v; v = v->next) {
-		progress_println("reading project revision %s",
-			rcs_number_string_sb(&v->number));
+	validate_project_data(revnum, data);
 
-		pjdata = project_read_revision(&v->number);
-		frev_list = project_revision_read_files(pjdata);
+	frev_list = project_revision_read_files(data);
+	mark_checkpointed_revisions(frev_list);
+	save_checkpoint_file_revisions(revnum, frev_list);
 
-		for (cp = project->symbols; cp; cp = cp->next) {
-			if (!rcs_number_equal(&cp->number, &v->number))
-				continue;
+	project_revision_read_branches(&project_branches, data);
+}
 
-			examine_checkpoint(frev_list, cp);
-			break;
-		}
-
-		cpf = xcalloc(1, sizeof *cpf, __func__);
-		cpf->pjver = v;
-		cpf->frevs = frev_list;
-		cpf->next = cp_files;
-		cp_files = cpf;
-
-		project_revision_read_branches(&project_branches, pjdata);
-
-		free(pjdata);
-	}
+void
+project_read_all_revisions(void)
+{
+	export_progress("reading checkpointed project revisions");
+	rcs_file_read_all_revisions(project, project_data_handler);
 }

@@ -33,7 +33,8 @@ commit_msg_adds(const struct file_change *adds)
 		lead = xmalloc(len, __func__);
 		snprintf(lead, len, "Add %u files\n\n", count);
 	} else {
-		len = snprintf(NULL, 0, "Add file %s\n\n", adds->file->name) + 1;
+		len = snprintf(NULL, 0, "Add file %s\n\n", adds->file->name)
+			+ 1;
 		if (len <= 80) {
 			lead = xmalloc(len, __func__);
 			snprintf(lead, len, "Add file %s\n\n",
@@ -261,11 +262,11 @@ commit_msg_deletes(const struct file_change *deletes)
 }
 
 /* merge adds into commits */
-static struct commit *
+static struct git_commit *
 merge_adds(const char *branch, struct file_change *add_list, time_t cp_date)
 {
 	struct file_change *add, *a, **old_prev_next, **new_prev_next;
-	struct commit *head, **prev_next, *c;
+	struct git_commit *head, **prev_next, *c;
 	const struct rcs_version *ver, *add_ver;
 
 	/*
@@ -284,8 +285,8 @@ merge_adds(const char *branch, struct file_change *add_list, time_t cp_date)
 
 		c = xcalloc(1, sizeof *c, __func__);
 		c->branch = branch;
-		c->committer_name = ver->author; /* TODO: author mapping */
-		c->committer_email = ver->author; /* TODO: author mapping */
+		c->committer.name = ver->author; /* TODO: author mapping */
+		c->committer.email = ver->author; /* TODO: author mapping */
 		c->date = cp_date;
 		c->changes.adds = add;
 
@@ -321,12 +322,12 @@ merge_adds(const char *branch, struct file_change *add_list, time_t cp_date)
 }
 
 /* merge updates into commits */
-static struct commit *
+static struct git_commit *
 merge_updates(const char *branch, struct file_change *update_list,
 	time_t cp_date)
 {
 	struct file_change *u, *update, **old_prev_next, **new_prev_next;
-	struct commit *head, **prev_next, *c;
+	struct git_commit *head, **prev_next, *c;
 	const struct rcs_version *ver, *upd_ver;
 	const struct rcs_patch *patch, *upd_patch;
 	const char *label, *upd_label;
@@ -360,14 +361,14 @@ merge_updates(const char *branch, struct file_change *update_list,
 		 * to know who did it.
 		 */
 		if (rcs_number_compare(&update->newrev, &update->oldrev) < 0) {
-			c->committer_name = "Unknown";
-			c->committer_email = "unknown@unknown";
+			c->committer.name = "Unknown";
+			c->committer.email = "unknown@unknown";
 			update->next = NULL;
 			goto commit_message;
 		}
 
-		c->committer_name = ver->author; /* TODO: author mapping */
-		c->committer_email = ver->author; /* TODO: author mapping */
+		c->committer.name = ver->author; /* TODO: author mapping */
+		c->committer.email = ver->author; /* TODO: author mapping */
 
 		/* Is this revision labeled? */
 		label = file_revision_label(update->file, &update->newrev);
@@ -480,10 +481,10 @@ commit_message:
 }
 
 /* merge all deletions into a single delete commit */
-static struct commit *
+static struct git_commit *
 merge_deletes(const char *branch, struct file_change *deletes, time_t cp_date)
 {
-	struct commit *c;
+	struct git_commit *c;
 
 	if (!deletes)
 		return NULL;
@@ -494,8 +495,8 @@ merge_deletes(const char *branch, struct file_change *deletes, time_t cp_date)
 	 */
 	c = xcalloc(1, sizeof *c, __func__);
 	c->branch = branch;
-	c->committer_name = "Unknown";
-	c->committer_email = "unknown@unknown";
+	c->committer.name = "Unknown";
+	c->committer.email = "unknown@unknown";
 	c->date = cp_date;
 	c->commit_msg = commit_msg_deletes(deletes);
 	c->changes.deletes = deletes;
@@ -504,9 +505,9 @@ merge_deletes(const char *branch, struct file_change *deletes, time_t cp_date)
 
 /* append a list to another list */
 static void
-commit_list_append(struct commit **list, struct commit *append)
+commit_list_append(struct git_commit **list, struct git_commit *append)
 {
-	struct commit **prev_next, *c;
+	struct git_commit **prev_next, *c;
 
 	prev_next = list;
 	for (c = *prev_next; c; c = *prev_next)
@@ -515,11 +516,11 @@ commit_list_append(struct commit **list, struct commit *append)
 }
 
 /* merge individual changes into commits */
-struct commit *
+struct git_commit *
 merge_changeset_into_commits(const char *branch,
 	struct file_change_lists *changes, time_t cp_date)
 {
-	struct commit *add_commits, *update_commits, *delete_commit;
+	struct git_commit *add_commits, *update_commits, *delete_commit;
 
 	add_commits = merge_adds(branch, changes->adds, cp_date);
 	changes->adds = NULL;
@@ -537,9 +538,9 @@ merge_changeset_into_commits(const char *branch,
 
 /* free a list of commits */
 void
-free_commits(struct commit *commit_list)
+free_commits(struct git_commit *commit_list)
 {
-	struct commit *c, *cnext;
+	struct git_commit *c, *cnext;
 
 	for (c = commit_list; c; c = cnext) {
 		cnext = c->next;

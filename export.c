@@ -3,19 +3,6 @@
 #include <string.h>
 #include "interfaces.h"
 
-const struct rcs_file_revision *
-find_checkpoint_file_revisions(const struct rcs_number *pjrev)
-{
-	const struct cp_files *cpf;
-
-	for (cpf = cp_files; cpf; cpf = cpf->next)
-		if (rcs_number_equal(&cpf->pjver->number, pjrev))
-			return cpf->frevs;
-	fatal_error("no recorded file revision list for project revision %s",
-		rcs_number_string_sb(pjrev));
-	return NULL; /* unreachable */
-}
-
 static const char *
 pjrev_find_checkpoint(const struct rcs_number *pjrev)
 {
@@ -41,6 +28,74 @@ pjrev_find_branch(const struct rcs_number *pjrev)
 			return b->symbol_name;
 
 	return NULL;
+}
+
+/* print a progress message */
+void
+export_progress(const char *fmt, ...)
+{
+	va_list args;
+
+	printf("progress - "); /* git fast-import progress command */
+	va_start(args, fmt);
+	vprintf(fmt, args);
+	va_end(args);
+	printf("\n");
+}
+
+static void
+blob_data_handler(struct rcs_file *file, const struct rcs_number *revnum,
+	const char *data)
+{
+	static unsigned long blob_mark;
+	struct rcs_version *ver;
+
+	/*
+	 * Put a comment in the stream which identifies the blob.  This is only
+	 * for debugging.
+	 */
+	printf("# %s rev. %s\n", file->name, rcs_number_string_sb(revnum));
+
+	printf("blob\n");
+	printf("mark :%lu\n", ++blob_mark);
+	printf("data %zu\n", strlen(data));
+	printf("%s\n", data);
+
+	ver = rcs_file_find_version(file, revnum, true);
+	ver->blob_mark = blob_mark;
+}
+
+static void
+export_blobs(void)
+{
+	struct rcs_file *f;
+	unsigned long nf, i, progress, progress_printed;
+
+	export_progress("exporting file revision blobs");
+
+	/* count files to allow progress to be shown */
+	nf = 0;
+	for (f = files; f; f = f->next)
+		++nf;
+
+	progress_printed = 0;
+	for (i = 0, f = files; f; f = f->next, ++i) {
+		if (f->binary)
+			continue; /* TODO... */
+
+		rcs_file_read_all_revisions(f, blob_data_handler);
+
+		/*
+		 * This is one of the slowest parts of the conversion, so
+		 * reassure the user by printing our progress.
+		 */
+		progress = i * 100 / nf;
+		if (progress > progress_printed) {
+			export_progress("exported %lu%% of file revision blobs",
+				progress);
+			progress_printed = progress;
+		}
+	}
 }
 
 static bool
@@ -82,62 +137,39 @@ file_mode(const struct rcs_file *file)
 	return 0644;
 }
 
-static struct commit *
-get_commit_list(const char *branch, const struct rcs_number *pjrev_old,
-	const struct rcs_number *pjrev_new)
+static void
+export_filemodifies(struct file_change *mods)
 {
-	const struct rcs_file_revision *frevs_old, *frevs_new;
-	const struct rcs_version *pjver_old, *pjver_new;
-	struct file_change_lists changes;
+	struct file_change *m;
+	struct rcs_version *ver;
 
-	if (pjrev_old) {
-		frevs_old = find_checkpoint_file_revisions(pjrev_old);
-		pjver_old = rcs_file_find_version(project, pjrev_old, true);
-	} else {
-		frevs_old = NULL;
-		pjver_old = NULL;
+	for (m = mods; m; m = m->next) {
+		ver = rcs_file_find_version(m->file, &m->newrev, true);
+		printf("M %o :%lu %s\n", file_mode(m->file), ver->blob_mark,
+			m->file->name);
 	}
-
-	frevs_new = find_checkpoint_file_revisions(pjrev_new);
-	pjver_new = rcs_file_find_version(project, pjrev_new, true);
-
-	changeset_build(frevs_old, pjver_old ? pjver_old->date : 0, frevs_new,
-		pjver_new->date, &changes);
-	return merge_changeset_into_commits(branch, &changes, pjver_new->date);
 }
 
 static void
-export_file_revision_data(struct rcs_file *file,
-	const struct rcs_number *revnum)
+export_deletes(struct file_change *deletes)
 {
-	char *data;
+	struct file_change *d;
 
-	data = rcs_revision_read(file, revnum);
-	printf("data %zu\n", strlen(data));
-	printf("%s\n", data);
-	free(data);
+	for (d = deletes; d; d = d->next)
+		printf("D %s\n", d->file->name);
 }
 
 static void
-export_commit(const struct commit *commit)
+export_commit(const struct git_commit *commit)
 {
-	struct file_change *c;
-
 	printf("commit refs/heads/%s\n", commit->branch);
-	printf("committer %s <%s> %lu -0800\n", commit->committer_name,
-		commit->committer_email, (unsigned long)commit->date);
+	printf("committer %s <%s> %lu -0800\n", commit->committer.name,
+		commit->committer.email, (unsigned long)commit->date);
 	printf("data %zu\n", strlen(commit->commit_msg));
 	printf("%s\n", commit->commit_msg);
-	for (c = commit->changes.adds; c; c = c->next) {
-		printf("M %o inline %s\n", file_mode(c->file), c->file->name);
-		export_file_revision_data(c->file, &c->newrev);
-	}
-	for (c = commit->changes.updates; c; c = c->next) {
-		printf("M %o inline %s\n", file_mode(c->file), c->file->name);
-		export_file_revision_data(c->file, &c->newrev);
-	}
-	for (c = commit->changes.deletes; c; c = c->next)
-		printf("D %s\n", c->file->name);
+	export_filemodifies(commit->changes.adds);
+	export_filemodifies(commit->changes.updates);
+	export_deletes(commit->changes.deletes);
 }
 
 static void
@@ -165,12 +197,36 @@ export_branch_create(const char *from_branch, const char *new_branch)
 	printf("from refs/heads/%s\n\n", from_branch);
 }
 
+static struct git_commit *
+get_commit_list(const char *branch, const struct rcs_number *pjrev_old,
+	const struct rcs_number *pjrev_new)
+{
+	const struct rcs_file_revision *frevs_old, *frevs_new;
+	const struct rcs_version *pjver_old, *pjver_new;
+	struct file_change_lists changes;
+
+	if (pjrev_old) {
+		frevs_old = find_checkpoint_file_revisions(pjrev_old);
+		pjver_old = rcs_file_find_version(project, pjrev_old, true);
+	} else {
+		frevs_old = NULL;
+		pjver_old = NULL;
+	}
+
+	frevs_new = find_checkpoint_file_revisions(pjrev_new);
+	pjver_new = rcs_file_find_version(project, pjrev_new, true);
+
+	changeset_build(frevs_old, pjver_old ? pjver_old->date : 0, frevs_new,
+		pjver_new->date, &changes);
+	return merge_changeset_into_commits(branch, &changes, pjver_new->date);
+}
+
 static void
 export_project_revision_changes(const struct rcs_number *pjrev_old,
 	const struct rcs_number *pjrev_new)
 {
 	const char *cpname, *branch;
-	struct commit *commits, *c;
+	struct git_commit *commits, *c;
 	struct rcs_symbol *b;
 
 	cpname = pjrev_find_checkpoint(pjrev_new);
@@ -181,7 +237,7 @@ export_project_revision_changes(const struct rcs_number *pjrev_old,
 		return;
 	}
 
-	progress_println("exporting project rev. %s "
+	export_progress("exporting project rev. %s "
 		"(branch=%s checkpoint=%s)\n",
 		rcs_number_string_sb(pjrev_new), branch,
 		cpname ? cpname : "<none>");
@@ -200,44 +256,59 @@ export_project_revision_changes(const struct rcs_number *pjrev_old,
 }
 
 static void
-export_project(void)
+export_project_branch_changes(const struct rcs_number *pjrev_start,
+	struct rcs_branch *branches)
+{
+	struct rcs_branch *b;
+	struct rcs_version *bver;
+	struct rcs_number pjrev_branch_new, pjrev_branch_old;
+
+	pjrev_branch_old = *pjrev_start;
+	for (b = branches; b; b = b->next) {
+		pjrev_branch_new = b->number;
+		do {
+			export_project_revision_changes(
+				&pjrev_branch_old,
+				&pjrev_branch_new);
+
+			bver = rcs_file_find_version(project,
+				&pjrev_branch_new, true);
+			export_project_branch_changes(&pjrev_branch_new,
+				bver->branches);
+
+			pjrev_branch_old = pjrev_branch_new;
+			pjrev_branch_new = bver->parent;
+		} while (pjrev_branch_new.c);
+	}
+}
+
+static void
+export_project_changes(void)
 {
 	struct rcs_number pjrev_old, pjrev_new;
-	struct rcs_number pjrev_branch_old, pjrev_branch_new;
-	struct rcs_version *ver, *bver;
-	struct rcs_branch *b;
+	struct rcs_version *ver;
+	bool first;
 
-	/* start at rev. 1.1 */
 	pjrev_new.n[0] = 1;
-	pjrev_new.n[1] = 1;
+	pjrev_new.n[1] = 0;
 	pjrev_new.c = 2;
-	export_project_revision_changes(NULL, &pjrev_new);
-
+	first = true;
 	for (;;) {
 		pjrev_old = pjrev_new;
 		rcs_number_increment(&pjrev_new);
+
 		ver = rcs_file_find_version(project, &pjrev_new, false);
 		if (!ver)
 			break;
 
 		/* Export changes from these trunk revisions */
-		export_project_revision_changes(&pjrev_old, &pjrev_new);
+		export_project_revision_changes(first ? NULL : &pjrev_old,
+			&pjrev_new);
 
 		/* Export changes for any branch that starts here */
-		pjrev_branch_old = pjrev_new;
-		for (b = ver->branches; b; b = b->next) {
-			pjrev_branch_new = b->number;
-			do {
-				export_project_revision_changes(
-					&pjrev_branch_old,
-					&pjrev_branch_new);
+		export_project_branch_changes(&pjrev_new, ver->branches);
 
-				bver = rcs_file_find_version(project,
-					&pjrev_branch_new, true);
-				pjrev_branch_old = pjrev_branch_new;
-				pjrev_branch_new = bver->parent;
-			} while (pjrev_branch_new.c);
-		}
+		first = false;
 	}
 }
 
@@ -245,6 +316,7 @@ export_project(void)
 void
 export(void)
 {
-	project_read_checkpoints();
-	export_project();
+	project_read_all_revisions();
+	export_blobs();
+	export_project_changes();
 }
