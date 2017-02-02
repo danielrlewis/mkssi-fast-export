@@ -187,8 +187,10 @@ import_rcs_files_in_dir(const char *relative_dir_path)
 void
 import(void)
 {
-	export_progress("importing RCS master files from \"%s\"",
-		mkssi_dir_path);
+	if (!author_list) {
+		export_progress("importing RCS master files from \"%s\"",
+			mkssi_dir_path);
+	}
 
 	/* Import project.pj first, so we fail quickly if something is wrong. */
 	project = import_rcs_file("project.pj");

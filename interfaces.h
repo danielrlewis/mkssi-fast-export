@@ -93,13 +93,6 @@ struct rcs_file_revision {
 	struct rcs_number rev;
 };
 
-/* list of file revisions for each checkpoint */
-struct cp_files {
-	struct cp_files *next;
-	const struct rcs_version *pjver;
-	const struct rcs_file_revision *frevs;
-};
-
 /* list of changes to files */
 enum file_change_type { ADD, DELETE, UPDATE };
 struct file_change {
@@ -124,7 +117,7 @@ struct git_author {
 struct git_commit {
 	struct git_commit *next;
 	const char *branch;
-	struct git_author committer;
+	const struct git_author *committer;
 	time_t date;
 	char *commit_msg;
 	struct file_change_lists changes;
@@ -137,7 +130,7 @@ extern struct rcs_file *file_hash_table[1024];
 extern struct rcs_file *corrupt_files;
 extern struct rcs_file *project; /* project.pj */
 extern struct rcs_symbol *project_branches;
-extern struct cp_files *cp_files;
+extern bool author_list;
 
 /* import.c */
 void import(void);
@@ -185,6 +178,11 @@ struct rcs_number *rcs_number_increment(struct rcs_number *number);
 struct rcs_number *rcs_number_decrement(struct rcs_number *number);
 char *rcs_number_string(const struct rcs_number *n, char *str, size_t maxlen);
 const char *rcs_number_string_sb(const struct rcs_number *n);
+
+/* authors.c */
+void author_map_initialize(const char *author_map_path);
+const struct git_author *author_map(const char *author);
+void dump_unmapped_authors(void);
 
 /* utils.c */
 void progress_println(const char *fmt, ...);

@@ -12,6 +12,7 @@ rm -f gram.c gram.h lex.c lex.h mkssi-fast-export
 bison --defines=gram.h --output-file=gram.c gram.y
 flex --header-file=lex.h --outfile=lex.c lex.l
 cc -Wall -Wno-unused-function -O2 -march=native -I. -D_GNU_SOURCE \
+	authors.c \
 	changeset.c \
 	export.c \
 	gram.c \

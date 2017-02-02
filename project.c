@@ -3,6 +3,15 @@
 #include <string.h>
 #include "interfaces.h"
 
+/* list of file revisions for each checkpoint */
+struct cp_files {
+	struct cp_files *next;
+	const struct rcs_version *pjver;
+	const struct rcs_file_revision *frevs;
+};
+
+static struct cp_files *cp_files;
+
 /* validate that a string looks like a given revision of project.pj */
 static void
 validate_project_data(const struct rcs_number *revnum, const char *pjdata)

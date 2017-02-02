@@ -163,8 +163,8 @@ static void
 export_commit(const struct git_commit *commit)
 {
 	printf("commit refs/heads/%s\n", commit->branch);
-	printf("committer %s <%s> %lu -0800\n", commit->committer.name,
-		commit->committer.email, (unsigned long)commit->date);
+	printf("committer %s <%s> %lu -0800\n", commit->committer->name,
+		commit->committer->email, (unsigned long)commit->date);
 	printf("data %zu\n", strlen(commit->commit_msg));
 	printf("%s\n", commit->commit_msg);
 	export_filemodifies(commit->changes.adds);
@@ -178,13 +178,15 @@ export_checkpoint_tag(const char *tag, const char *from_branch,
 {
 	const struct rcs_version *ver;
 	const struct rcs_patch *patch;
+	const struct git_author *tagger;
 
 	ver = rcs_file_find_version(project, cprevnum, true);
 	patch = rcs_file_find_patch(project, cprevnum, true);
+	tagger = author_map(ver->author);
 
 	printf("tag %s\n", tag);
 	printf("from refs/heads/%s\n", from_branch);
-	printf("tagger %s <%s> %lu -800\n", ver->author, ver->author,
+	printf("tagger %s <%s> %lu -800\n", tagger->name, tagger->email,
 		(unsigned long)ver->date);
 	printf("data %zu\n", strlen(patch->log));
 	printf("%s\n", patch->log);

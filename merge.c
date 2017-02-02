@@ -4,6 +4,15 @@
 #include <ctype.h>
 #include "interfaces.h"
 
+/*
+ * Used for deleted and reverted files, since MKSSI saves no authorship for
+ * such events.
+ */
+static const struct git_author unknown_author = {
+	.name = "Unknown",
+	.email = "unknown"
+};
+
 /* lookup the MKSSI label for a file revision */
 static const char *
 file_revision_label(const struct rcs_file *file, const struct rcs_number *rev)
@@ -285,8 +294,7 @@ merge_adds(const char *branch, struct file_change *add_list, time_t cp_date)
 
 		c = xcalloc(1, sizeof *c, __func__);
 		c->branch = branch;
-		c->committer.name = ver->author; /* TODO: author mapping */
-		c->committer.email = ver->author; /* TODO: author mapping */
+		c->committer = author_map(ver->author);
 		c->date = cp_date;
 		c->changes.adds = add;
 
@@ -361,14 +369,12 @@ merge_updates(const char *branch, struct file_change *update_list,
 		 * to know who did it.
 		 */
 		if (rcs_number_compare(&update->newrev, &update->oldrev) < 0) {
-			c->committer.name = "Unknown";
-			c->committer.email = "unknown@unknown";
+			c->committer = &unknown_author;
 			update->next = NULL;
 			goto commit_message;
 		}
 
-		c->committer.name = ver->author; /* TODO: author mapping */
-		c->committer.email = ver->author; /* TODO: author mapping */
+		c->committer = author_map(ver->author);
 
 		/* Is this revision labeled? */
 		label = file_revision_label(update->file, &update->newrev);
@@ -495,8 +501,7 @@ merge_deletes(const char *branch, struct file_change *deletes, time_t cp_date)
 	 */
 	c = xcalloc(1, sizeof *c, __func__);
 	c->branch = branch;
-	c->committer.name = "Unknown";
-	c->committer.email = "unknown@unknown";
+	c->committer = &unknown_author;
 	c->date = cp_date;
 	c->commit_msg = commit_msg_deletes(deletes);
 	c->changes.deletes = deletes;

@@ -3,6 +3,8 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <dirent.h>
+#include <unistd.h>
+#include <getopt.h>
 #include "interfaces.h"
 #include "gram.h"
 #include "lex.h"
@@ -13,15 +15,21 @@ struct rcs_file *file_hash_table[1024];
 struct rcs_file *corrupt_files;
 struct rcs_file *project; /* project.pj */
 struct rcs_symbol *project_branches;
-struct cp_files *cp_files;
+bool author_list;
 
 /* print usage to stderr and exit */
 static void
 usage(const char *name)
 {
-	fprintf(stderr, "usage: %s mkssi_input_dir\n", name);
+	fprintf(stderr, "usage: %s [options] mkssi_input_dir\n", name);
 	fprintf(stderr, "Fast-export history from an MKSSI (v7.5a) "
-		"repository.\n");
+		"repository.\n\n");
+	fprintf(stderr, "The following options are supported:\n");
+	fprintf(stderr, "  -h --help  This help message\n");
+	fprintf(stderr, "  -A --authormap=file  Author map (same as "
+		"cvs-fast-export)\n");
+	fprintf(stderr, "  -a --authorlist  Dump authors not in author map and "
+		"exit\n");
 	exit(1);
 }
 
@@ -67,20 +75,62 @@ mkssi_dir_validate(const char *mkssi_dir)
 int
 main(int argc, char *argv[])
 {
-	if (argc != 2)
+	static const struct option options[] = {
+		{ "help", no_argument, 0, 'h'},
+		{ "authormap", required_argument, 0, 'A'},
+		{ "authorlist", no_argument, 0, 'a'},
+		{ NULL }
+	};
+	int c;
+	const char *author_map;
+
+	author_map = NULL;
+	for (;;) {
+		c = getopt_long(argc, argv, "hA:a", options, NULL);
+		if (c < 0)
+			break;
+		switch (c) {
+		case 'h':
+			usage(argv[0]);
+			break;
+		case 'A':
+			author_map = optarg;
+			break;
+		case 'a':
+			author_list = true;
+			break;
+		default: /* error message already emitted */
+			fprintf(stderr, "try `%s --help' for more "
+				"information.\n", argv[0]);
+            		exit(1);
+		}
+	}
+
+	if (argc != optind + 1)
 		usage(argv[0]);
 
-	/*
-	 * This tells git fast-import that the stream is incomplete if we abort
-	 * prior to sending the "done" command.
-	 */
-	printf("feature done\n");
+	if (!author_list) {
+		/*
+		 * This tells git fast-import that the stream is incomplete if
+		 * we abort prior to sending the "done" command.
+		 */
+		printf("feature done\n");
+	}
+
+	if (author_map)
+		author_map_initialize(author_map);
 
 	/* Validate the user-supplied project directory. */
-	mkssi_dir_validate(argv[1]);
-	mkssi_dir_path = argv[1];
+	mkssi_dir_validate(argv[optind]);
+	mkssi_dir_path = argv[optind];
 
 	import();
+
+	if (author_list) {
+		dump_unmapped_authors();
+		exit(0);
+	}
+
 	export();
 
 	printf("done\n");
