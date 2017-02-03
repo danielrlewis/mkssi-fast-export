@@ -15,6 +15,7 @@ struct rcs_file *file_hash_table[1024];
 struct rcs_file *corrupt_files;
 struct rcs_file *project; /* project.pj */
 struct rcs_symbol *project_branches;
+struct rcs_number trunk_branch;
 bool author_list;
 
 /* print usage to stderr and exit */
@@ -30,6 +31,8 @@ usage(const char *name)
 		"cvs-fast-export)\n");
 	fprintf(stderr, "  -a --authorlist  Dump authors not in author map and "
 		"exit\n");
+	fprintf(stderr, "  -b --trunk-branch=rev  Trunk branch revision number "
+		"(trunk as branch)\n");
 	exit(1);
 }
 
@@ -79,6 +82,7 @@ main(int argc, char *argv[])
 		{ "help", no_argument, 0, 'h'},
 		{ "authormap", required_argument, 0, 'A'},
 		{ "authorlist", no_argument, 0, 'a'},
+		{ "trunk-branch", required_argument, 0, 'b'},
 		{ NULL }
 	};
 	int c;
@@ -86,7 +90,7 @@ main(int argc, char *argv[])
 
 	author_map = NULL;
 	for (;;) {
-		c = getopt_long(argc, argv, "hA:a", options, NULL);
+		c = getopt_long(argc, argv, "hA:ab:", options, NULL);
 		if (c < 0)
 			break;
 		switch (c) {
@@ -98,6 +102,18 @@ main(int argc, char *argv[])
 			break;
 		case 'a':
 			author_list = true;
+			break;
+		case 'b':
+			trunk_branch = lex_number(optarg);
+			if (!trunk_branch.c || (trunk_branch.c & 1))
+				fatal_error("invalid revision number: %s\n",
+					optarg);
+
+			project_branches = xcalloc(1, sizeof *project_branches,
+				__func__);
+			project_branches->symbol_name = xstrdup("master",
+				__func__);
+			project_branches->number = trunk_branch;
 			break;
 		default: /* error message already emitted */
 			fprintf(stderr, "try `%s --help' for more "

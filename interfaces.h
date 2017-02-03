@@ -130,6 +130,7 @@ extern struct rcs_file *file_hash_table[1024];
 extern struct rcs_file *corrupt_files;
 extern struct rcs_file *project; /* project.pj */
 extern struct rcs_symbol *project_branches;
+extern struct rcs_number trunk_branch;
 extern bool author_list;
 
 /* import.c */

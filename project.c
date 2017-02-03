@@ -315,6 +315,17 @@ project_branch_add(struct rcs_symbol **branches, struct rcs_symbol *branch)
 	int cmp;
 
 	/*
+	 * The special "trunk branch" is used for weird projects where the trunk
+	 * somehow becomes an namless branch revision.  The trunk branch should
+	 * never have the same branch number as an actual legit branch.
+	 */
+	if (rcs_number_equal(&branch->number, &trunk_branch))
+		fatal_error("specified trunk branch rev. %s is used by an "
+			"actual branch named \"%s\"",
+			rcs_number_string_sb(&trunk_branch),
+			branch->symbol_name);
+
+	/*
 	 * This branch might have already been recorded from another revision of
 	 * project.pj.  If so, ignore it.
 	 */

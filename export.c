@@ -3,6 +3,7 @@
 #include <string.h>
 #include "interfaces.h"
 
+/* find a named project checkpoint by project revision number */
 static const char *
 pjrev_find_checkpoint(const struct rcs_number *pjrev)
 {
@@ -14,19 +15,34 @@ pjrev_find_checkpoint(const struct rcs_number *pjrev)
 	return NULL;
 }
 
+/* find a branch by project revision number */
 static const char *
 pjrev_find_branch(const struct rcs_number *pjrev)
 {
 	struct rcs_symbol *b;
 
-	if (rcs_number_is_trunk(pjrev))
+	/* Trunk project revisions go on the trunk, unless... */
+	if (rcs_number_is_trunk(pjrev)) {
+		/*
+		 * ...unless we are dealing with one of those weird projects
+		 * where the trunk history somehow got put onto an nameless
+		 * branch revision (the trunk_branch), in which case any
+		 * revisions >trunk_branch are not actually trunk revisions;
+		 * they actually have no branch.
+		 */
+		if (trunk_branch.c
+		 && rcs_number_compare(pjrev, &trunk_branch) > 0)
+			return NULL;
+
 		return "master";
+	}
 
 	for (b = project_branches; b; b = b->next)
-		if (rcs_number_partial_match(pjrev, &b->number)
-		 && !rcs_number_equal(pjrev, &b->number))
+		if (pjrev->c - 2 == b->number.c
+		 && rcs_number_partial_match(pjrev, &b->number))
 			return b->symbol_name;
 
+	/* No matching branch for this project revision */
 	return NULL;
 }
 
@@ -36,7 +52,11 @@ export_progress(const char *fmt, ...)
 {
 	va_list args;
 
-	printf("progress - "); /* git fast-import progress command */
+	/*
+	 * git fast-import will print any lines starting with "progress " to
+	 * stdout.  The printed message includes the "progress" text.
+	 */
+	printf("progress - ");
 	va_start(args, fmt);
 	vprintf(fmt, args);
 	va_end(args);
@@ -91,8 +111,8 @@ export_blobs(void)
 		 */
 		progress = i * 100 / nf;
 		if (progress > progress_printed) {
-			export_progress("exported %lu%% of file revision blobs",
-				progress);
+			export_progress("exported file revision blobs for "
+				"%lu%% of all files", progress);
 			progress_printed = progress;
 		}
 	}
@@ -250,7 +270,8 @@ export_project_revision_changes(const struct rcs_number *pjrev_old,
 	free_commits(commits);
 
 	for (b = project_branches; b; b = b->next)
-		if (rcs_number_equal(&b->number, pjrev_new))
+		if (rcs_number_equal(&b->number, pjrev_new)
+		 && strcmp(b->symbol_name, "master"))
 			export_branch_create(branch, b->symbol_name);
 
 	if (cpname)

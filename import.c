@@ -187,6 +187,10 @@ import_rcs_files_in_dir(const char *relative_dir_path)
 void
 import(void)
 {
+	/*
+	 * If getting the author list, suppress progress messages intended for
+	 * git fast-import.
+	 */
 	if (!author_list) {
 		export_progress("importing RCS master files from \"%s\"",
 			mkssi_dir_path);
