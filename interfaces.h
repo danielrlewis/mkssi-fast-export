@@ -94,10 +94,8 @@ struct rcs_file_revision {
 };
 
 /* list of changes to files */
-enum file_change_type { ADD, DELETE, UPDATE };
 struct file_change {
 	struct file_change *next;
-	enum file_change_type type;
 	struct rcs_file *file;
 	struct rcs_number oldrev, newrev;
 };

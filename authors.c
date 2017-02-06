@@ -1,3 +1,7 @@
+/*
+ * Map MKSSI usernames (e.g., johns) to Git identities (e.g., "John Smith
+ * <john.smith@example.org>").
+ */
 #include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
@@ -61,6 +65,7 @@ next_line(FILE *f, unsigned int lineno)
 		if (c == EOF) {
 			if (pos == line)
 				return NULL;
+			break;
 		}
 		if (c == '\n')
 			break;

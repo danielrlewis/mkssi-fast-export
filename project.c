@@ -10,6 +10,7 @@ struct cp_files {
 	const struct rcs_file_revision *frevs;
 };
 
+/* Linked list of file revisions included in each checkpoint */
 static struct cp_files *cp_files;
 
 /* validate that a string looks like a given revision of project.pj */

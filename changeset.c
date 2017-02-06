@@ -1,3 +1,8 @@
+/*
+ * Build a list of changes that occurred between two project revisions (that is,
+ * between project checkpoints).  The list shows added files, updated files, and
+ * deleted files.
+ */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -20,7 +25,6 @@ find_adds(const struct rcs_file_revision *old,
 				break;
 		if (!o) {
 			change = xcalloc(1, sizeof *change, __func__);
-			change->type = ADD;
 			change->file = n->file;
 			change->newrev = n->rev;
 			*prev_next = change;
@@ -50,7 +54,6 @@ find_updates(const struct rcs_file_revision *old,
 			if (o->file == n->file
 			 && !rcs_number_equal(&o->rev, &n->rev)) {
 				change = xcalloc(1, sizeof *change, __func__);
-				change->type = UPDATE;
 				change->file = n->file;
 				change->oldrev = o->rev;
 				change->newrev = n->rev;
@@ -77,7 +80,6 @@ find_deletes(const struct rcs_file_revision *old,
 				break;
 		if (!n) {
 			change = xcalloc(1, sizeof *change, __func__);
-			change->type = DELETE;
 			change->file = o->file;
 			change->oldrev = o->rev;
 			*prev_next = change;
@@ -123,7 +125,6 @@ adjust_adds(struct file_change *adds, time_t old_date)
 			 * that an update followed.
 			 */
 			update = xcalloc(1, sizeof *update, __func__);
-			update->type = UPDATE;
 			update->file = c->file;
 			update->oldrev = prevrev;
 			update->newrev = c->newrev;
@@ -133,7 +134,6 @@ adjust_adds(struct file_change *adds, time_t old_date)
 			c->newrev = prevrev;
 		}
 	}
-
 	return new_updates;
 }
 
@@ -166,7 +166,6 @@ adjust_updates(struct file_change *updates)
 			if (rcs_number_compare(&c->oldrev, &prevrev) >= 0)
 				break;
 
-			/* Don't clutter the history with duplicate revisions */
 			patch = rcs_file_find_patch(c->file, &prevrev, false);
 			if (!patch) {
 				/*
@@ -179,11 +178,26 @@ adjust_updates(struct file_change *updates)
 					rcs_number_string_sb(&prevrev));
 				continue;
 			}
+
+			/*
+			 * Don't clutter the history with duplicate revisions.
+			 *
+			 * When a file is branched, a duplicate revision is
+			 * automatically generated; it contains no changes.
+			 * File rev. 1.7 might have a duplicate rev. 1.7.1.1.
+			 * The actual changes would normally be checked in at
+			 * rev. 1.7.1.2.  To avoid cluttering the Git history,
+			 * we show rev. 1.7 -> 1.7.1.2, skipping the duplicate
+			 * revision.
+			 *
+			 * The duplicate revision is only shown if it was
+			 * created and checkpointed without any subsequent
+			 * revision.
+			 */
 			if (!strcmp(patch->log, "Duplicate revision\n"))
 				continue;
 
 			update = xcalloc(1, sizeof *update, __func__);
-			update->type = UPDATE;
 			update->file = c->file;
 			update->oldrev = prevrev;
 			update->newrev = c->newrev;
@@ -193,7 +207,6 @@ adjust_updates(struct file_change *updates)
 			c->newrev = prevrev;
 		}
 	}
-
 	return new_updates;
 }
 
@@ -232,7 +245,6 @@ adjust_deletes(struct file_change *deletes, time_t new_date)
 			 * preceded.
 			 */
 			update = xcalloc(1, sizeof *update, __func__);
-			update->type = UPDATE;
 			update->file = c->file;
 			update->oldrev = c->oldrev;
 			update->newrev = nextrev;
@@ -242,7 +254,6 @@ adjust_deletes(struct file_change *deletes, time_t new_date)
 			c->oldrev = nextrev;
 		}
 	}
-
 	return new_updates;
 }
 
@@ -275,30 +286,17 @@ remove_nonexistent_file_revisions(struct file_change *changes)
 	return changes;
 }
 
-/* compare two changes for sorting purposes */
+/* compare two adds for sorting purposes */
 static int
-compare_changes(struct file_change *a, struct file_change *b)
+compare_adds(struct file_change *a, struct file_change *b)
 {
 	struct rcs_version *aver, *bver;
 
-	if (a->type != b->type)
-		fatal_error("internal error: abuse of %s", __func__);
-
 	/*
-	 * When dealing with updated revisions to a file, the earlier revision
-	 * must sort before the later revision.
-	 */
-	if (a->type == UPDATE && a->file == b->file &&
-	 rcs_number_compare(&a->newrev, &b->newrev) < 0)
-		return -1;
-
-	/* Deletes have no timestamp, so sort by name. */
-	if (a->type == DELETE)
-		goto name_sort;
-
-	/*
-	 * Sort adds/updates by MKSSI timestamp.  These are unreliable, but
-	 * there is nothing better.
+	 * Ideally we would sort the files by when they were added to the
+	 * project.  We cannot do so, since the MKSSI timestamp is the mtime of
+	 * the file when it was added, rather than the actual time it was added.
+	 * Sort by timestamp anyway, as an approximation of the ideal sort.
 	 */
 	aver = rcs_file_find_version(a->file, &a->newrev, true);
 	bver = rcs_file_find_version(b->file, &b->newrev, true);
@@ -308,14 +306,36 @@ compare_changes(struct file_change *a, struct file_change *b)
 		return 1;
 
 	/* If the timestamp is the same for some reason, sort by name. */
-
-name_sort:
 	return strcasecmp(a->file->name, b->file->name);
 }
 
-/* sort a list of changes (all of the same type) */
+/* compare two updates for sorting purposes */
+static int
+compare_updates(struct file_change *a, struct file_change *b)
+{
+	/*
+	 * When dealing with updated revisions to a file, the earlier revision
+	 * must sort before the later revision.
+	 */
+	if (a->file==b->file && rcs_number_compare(&a->newrev, &b->newrev) < 0)
+		return -1;
+
+	/* Otherwise the sort is the same as added files */
+	return compare_adds(a, b);
+}
+
+/* compare two deletes for sorting purposes */
+static int
+compare_deletes(struct file_change *a, struct file_change *b)
+{
+	/* Deletes have no timestamp, so sort by name. */
+	return strcasecmp(a->file->name, b->file->name);
+}
+
+/* sort a list of changes using the given comparison function */
 static struct file_change *
-sort_changes(struct file_change *list)
+sort_changes(struct file_change *list,
+	int (*compare)(struct file_change *a, struct file_change *b))
 {
 	struct file_change *head, **prev_next, *c, *cc;
 
@@ -328,14 +348,13 @@ sort_changes(struct file_change *list)
 		list = c->next;
 		prev_next = &head;
 		for (cc = head; cc; cc = cc->next) {
-			if (compare_changes(c, cc) < 0)
+			if (compare(c, cc) < 0)
 				break;
 			prev_next = &cc->next;
 		}
 		c->next = cc;
 		*prev_next = c;
 	}
-
 	return head;
 }
 
@@ -375,9 +394,9 @@ changeset_build(const struct rcs_file_revision *old, time_t old_date,
 	changes->adds = remove_nonexistent_file_revisions(changes->adds);
 	changes->updates = remove_nonexistent_file_revisions(changes->updates);
 
-	changes->adds = sort_changes(changes->adds);
-	changes->updates = sort_changes(changes->updates);
-	changes->deletes = sort_changes(changes->deletes);
+	changes->adds = sort_changes(changes->adds, compare_adds);
+	changes->updates = sort_changes(changes->updates, compare_updates);
+	changes->deletes = sort_changes(changes->deletes, compare_deletes);
 }
 
 /* free a list of changes */
