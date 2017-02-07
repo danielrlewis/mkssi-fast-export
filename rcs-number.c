@@ -1,45 +1,7 @@
+/* Utilities for working with RCS revision numbers */
 #include <stdio.h>
 #include <string.h>
 #include "interfaces.h"
-
-/* are two specified RCS revisions on the same branch? */
-bool
-rcs_number_same_branch(const struct rcs_number *a, const struct rcs_number *b)
-{
-	struct rcs_number t;
-	int i, n, an, bn;
-
-	if (a->c & 1) {
-		t = *a;
-		t.n[t.c++] = 0;
-		return rcs_number_same_branch(&t, b);
-	}
-	if (b->c & 1) {
-		t = *b;
-		t.n[t.c++] = 0;
-		return rcs_number_same_branch(a, &t);
-	}
-	if (a->c != b->c)
-		return false;
-	/* Everything on x.y is trunk */
-	if (a->c == 2)
-		return true;
-	n = a->c;
-	for (i = 0; i < n - 1; i++) {
-		an = a->n[i];
-		bn = b->n[i];
-		/* deal with n.m.0.p branch numbering */
-		if (i == n - 2) {
-			if (an == 0)
-				an = a->n[i+1];
-			if (bn == 0)
-				bn = b->n[i+1];
-		}
-		if (an != bn)
-			return false;
-	}
-	return true;
-}
 
 /* are two RCS revision numbers equal? */
 bool
@@ -49,6 +11,7 @@ rcs_number_equal(const struct rcs_number *n1, const struct rcs_number *n2)
     return !memcmp(n1, n2, sizeof(short) * (1 + n1->c));
 }
 
+/* is num equal to spec, up through the end of spec? */
 bool
 rcs_number_partial_match(const struct rcs_number *num,
 	const struct rcs_number *spec)

@@ -45,6 +45,7 @@ struct rcs_branch {
 struct rcs_version {
 	struct rcs_version *next;
 	bool checkpointed; /* revision listed in a project checkpoint */
+	bool executable; /* revision data looks like a Linux/Unix executable */
 	unsigned long blob_mark;
 
 	/* RCS metadata */
@@ -134,9 +135,15 @@ extern bool author_list;
 /* import.c */
 void import(void);
 
-/* export.c */
-void export(void);
-void export_progress(const char *fmt, ...);
+/* lex.l */
+struct rcs_number lex_number(const char *s);
+time_t lex_date(const struct rcs_number *n, void *yyscanner,
+	struct rcs_file *file);
+
+/* project.c */
+void project_read_all_revisions(void);
+const struct rcs_file_revision *find_checkpoint_file_revisions(
+	const struct rcs_number *pjrev);
 
 /* changeset.c */
 void changeset_build(const struct rcs_file_revision *old,
@@ -149,15 +156,9 @@ struct git_commit *merge_changeset_into_commits(const char *branch,
 	struct file_change_lists *changes, time_t cp_date);
 void free_commits(struct git_commit *commit_list);
 
-/* project.c */
-void project_read_all_revisions(void);
-const struct rcs_file_revision *find_checkpoint_file_revisions(
-	const struct rcs_number *pjrev);
-
-/* lex.l */
-struct rcs_number lex_number(const char *s);
-time_t lex_date(const struct rcs_number *n, void *yyscanner,
-	struct rcs_file *file);
+/* export.c */
+void export(void);
+void export_progress(const char *fmt, ...);
 
 /* rcs.c */
 typedef void rcs_revision_data_handler_t(struct rcs_file *file,
@@ -166,8 +167,6 @@ void rcs_file_read_all_revisions(struct rcs_file *file,
 	rcs_revision_data_handler_t *callback);
 
 /* rcs-number.c */
-bool rcs_number_same_branch(const struct rcs_number *a,
-	const struct rcs_number *b);
 bool rcs_number_equal(const struct rcs_number *n1, const struct rcs_number *n2);
 bool rcs_number_partial_match(const struct rcs_number *num,
 	const struct rcs_number *spec);
@@ -184,11 +183,9 @@ const struct git_author *author_map(const char *author);
 void dump_unmapped_authors(void);
 
 /* utils.c */
-void progress_println(const char *fmt, ...);
 void fatal_error(char const *fmt, ...);
 void fatal_system_error(char const *fmt, ...);
 char *time2string(time_t date);
-char *time2string_mkssi(time_t date);
 uint32_t hash_string(const char *s);
 bool string_is_upper(const char *s);
 bool is_hex_digit(char c);

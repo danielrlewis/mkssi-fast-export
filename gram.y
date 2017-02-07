@@ -1,3 +1,4 @@
+/* Bison/Yacc grammar for MKSSI-style RCS files */
 %{
 #include "interfaces.h"
 #include "gram.h"
@@ -38,6 +39,10 @@ extern YY_DECL;
 /*
  * There's a good description of the RCS master format at:
  * http://www.opensource.apple.com/source/cvs/cvs-19/cvs/doc/RCSFILES?txt
+ *
+ * Note that this grammer has been tailored for the MKSSI variant of RCS.  It
+ * does not support RCS features which MKSSI does not use, and it supports
+ * MKSSI extensions to RCS.
  */
 
 %token ACCESS
@@ -212,6 +217,7 @@ text : TEXT TEXT_DATA
 	;
 %%
 
+/* output an error message */
 void
 yyerror(yyscan_t scanner, struct rcs_file *file, const char *msg)
 {

@@ -1,3 +1,4 @@
+/* Read revision data from plain-text RCS files */
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
@@ -574,7 +575,7 @@ rcs_data_expand_log_keyword(const struct rcs_version *ver,
 		 */
 		loghdr = xcalloc(1, sizeof *loghdr, __func__);
 		revstr = rcs_number_string_sb(&ver->number);
-		revdate = time2string_mkssi(ver->date);
+		revdate = time2string(ver->date);
 		loghdr->len = prefixlen + strlen("Revision ") +
 			strlen(revstr) + strlen("  ") + strlen(revdate) +
 			strlen("  ") + strlen(ver->author);

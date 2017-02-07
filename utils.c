@@ -1,3 +1,4 @@
+/* Miscellaneous utility functions */
 #include <stdlib.h>
 #include <stdio.h>
 #include <errno.h>
@@ -41,27 +42,13 @@ fatal_error(const char *fmt, ...)
 	exit(1);
 }
 
-/* convert a time value to an RCS time string */
+/* convert a time value to an MKSSI time string */
 char *
 time2string(time_t date)
 {
 	static char timestr[23];
 	struct tm *tm;
 
-	/* TODO: Fix daylight savings time weirdness... */
-	tm = localtime(&date);
-	(void)strftime(timestr, sizeof timestr, "%Y.%m.%d.%H.%M.%S", tm);
-	return timestr;
-}
-
-/* convert a time value to an MKSSI time string */
-char *
-time2string_mkssi(time_t date)
-{
-	static char timestr[23];
-	struct tm *tm;
-
-	/* TODO: Fix daylight savings time weirdness... */
 	tm = localtime(&date);
 	(void)strftime(timestr, sizeof timestr, "%Y/%m/%d %H:%M:%SZ", tm);
 	return timestr;

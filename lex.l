@@ -1,3 +1,4 @@
+/* Lex/Flex parser for MKSSI-style RCS files */
 %{
 #include <stdlib.h>
 #include <stdio.h>
@@ -13,8 +14,8 @@ static void fast_export_sanitize(yyscan_t scanner, struct rcs_file *file);
 
 
 #define YY_INPUT(buf, result, max_size) { \
-    int c = getc(yyget_in(yyscanner)); \
-    result = (c == EOF) ? YY_NULL : (buf[0] = c, 1); \
+	int c = getc(yyget_in(yyscanner)); \
+	result = (c == EOF) ? YY_NULL : (buf[0] = c, 1); \
 }
 
 YY_DECL;
@@ -101,6 +102,7 @@ struct varbuf {
 	char buf[1024];
 };
 
+/* initialize a variable-length string buffer */
 static void
 varbuf_init(struct varbuf *buf)
 {
@@ -109,6 +111,7 @@ varbuf_init(struct varbuf *buf)
 	buf->string = buf->buf;
 }
 
+/* append a character to a variable length string buffer */
 static void
 varbuf_add(struct varbuf *buf, char c)
 {
@@ -125,6 +128,7 @@ varbuf_add(struct varbuf *buf, char c)
 	buf->string[buf->cur++] = c;
 }
 
+/* free a variable length string buffer */
 static void
 varbuf_free(struct varbuf *buf)
 {
@@ -132,8 +136,9 @@ varbuf_free(struct varbuf *buf)
 		free(buf->string);
 }
 
+/* copy the string from a variable-length string buffer */
 static char *
-varbuf_dup(struct varbuf *buf, const char *legend)
+varbuf_dup(const struct varbuf *buf, const char *legend)
 {
 	char *dup;
 
@@ -142,6 +147,7 @@ varbuf_dup(struct varbuf *buf, const char *legend)
 	return dup;
 }
 
+/* parse textual data from an RCS metadata field */
 static char *
 parse_data(yyscan_t yyscanner)
 {
@@ -161,12 +167,15 @@ parse_data(yyscan_t yyscanner)
 		varbuf_add(&buf, c);
 	}
 	ungetc(c, yyget_in(yyscanner));
+
 	varbuf_add(&buf, '\0');
-	ret = varbuf_dup(&buf, "parse_data");
+	ret = varbuf_dup(&buf, __func__);
 	varbuf_free(&buf);
+
 	return ret;
 }
 
+/* parse a "text" block from an RCS file */
 static void
 parse_text(struct rcs_text *text, yyscan_t yyscanner, struct rcs_file *file)
 {
@@ -196,6 +205,7 @@ parse_text(struct rcs_text *text, yyscan_t yyscanner, struct rcs_file *file)
 	text->length = length;
 }
 
+/* parse a number with multiple fields separated by periods (like "1.7.1.42") */
 struct rcs_number
 lex_number(const char *s)
 {
@@ -218,11 +228,13 @@ lex_number(const char *s)
 	return n;
 }
 
+/* convert a date/time fields into Unix time */
 time_t
 lex_date(const struct rcs_number *n, yyscan_t yyscanner, struct rcs_file *file)
 {
 	struct tm tm;
 	time_t d;
+	int i;
 
 	tm.tm_year = n->n[0];
 	if (tm.tm_year > 1900)
@@ -237,7 +249,6 @@ lex_date(const struct rcs_number *n, yyscan_t yyscanner, struct rcs_file *file)
 
 	d = mktime(&tm);
 	if (d == 0) {
-		int i;
 		fprintf(stderr, "%s: (%d) unparsable date: ",
 			file->master_name, yyget_lineno(yyscanner));
 		for (i = 0; i < n->c; i++) {

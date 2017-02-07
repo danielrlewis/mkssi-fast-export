@@ -1,3 +1,8 @@
+/*
+ * Export a stream of commands for git fast-import.
+ *
+ * Recommended reading: the git-fast-import(1) man page.
+ */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -37,6 +42,10 @@ pjrev_find_branch(const struct rcs_number *pjrev)
 		return "master";
 	}
 
+	/*
+	 * A project branch at 1.4 would match 1.4.1.x, but not 1.4 (which is
+	 * trunk) or 1.4.1.x.1.y (which is a branch of a branch).
+	 */
 	for (b = project_branches; b; b = b->next)
 		if (pjrev->c - 2 == b->number.c
 		 && rcs_number_partial_match(pjrev, &b->number))
@@ -63,8 +72,65 @@ export_progress(const char *fmt, ...)
 	printf("\n");
 }
 
+/* does a file name have a Linux/Unix script file name extension? */
+static bool
+has_script_extension(const char *path)
+{
+	/*
+	 * This list of extensions is incomplete, but it covers a lot of ground,
+	 * especially when paired with a check for shebang.
+	 *
+	 * Do *not* add ".bat", ".ps1", or other Windows scripting extensions to
+	 * this list.  Such files are not executable in any environment which
+	 * actually cares about execute permissions.
+	 */
+	const char *shext[] = {".sh", ".bash", ".csh", ".pl", ".py", ".rb"};
+	const char *s;
+	unsigned int i;
+
+	for (i = 0; i < ARRAY_SIZE(shext); ++i) {
+		s = path;
+		while ((s = strstr(s, shext[i]))) {
+			s += strlen(shext[i]);
+			if (!*s)
+				return true;
+		}
+	}
+	return false;
+}
+
+/* does a file revision look like a Linux/Unix executable? */
+static bool
+looks_like_executable(const struct rcs_file *file, const char *data)
+{
+	/* anything starting with a shebang is assumed to be a script */
+	if (data[0] == '#' && data[1] == '!')
+		return true;
+
+	/*
+	 * Assume anything with certain file extensions is an executable, even
+	 * if the shebang is absent.
+	 */
+	if (has_script_extension(file->name))
+		return true;
+
+	/* look for the magic number of an ELF executable */
+	if (data[0] == 0x7f && !strncmp(&data[1], "ELF", 3))
+		return true;
+
+	/*
+	 * Other files are not executable.
+	 *
+	 * Windows/DOS executables (.exe, .bat, .ps1, .com, etc.) are NOT
+	 * executable in any operating system where execute permissions actually
+	 * matter, and so they are treated as normal files.
+	 */
+	return false;
+}
+
+/* export a blob for the given file revision data */
 static void
-blob_data_handler(struct rcs_file *file, const struct rcs_number *revnum,
+export_revision_blob(struct rcs_file *file, const struct rcs_number *revnum,
 	const char *data)
 {
 	static unsigned long blob_mark;
@@ -76,15 +142,21 @@ blob_data_handler(struct rcs_file *file, const struct rcs_number *revnum,
 	 */
 	printf("# %s rev. %s\n", file->name, rcs_number_string_sb(revnum));
 
+	/*
+	 * Each blob is given a unique mark number.  Later when committing file
+	 * modifications, we refer back to the data blob we want by its mark.
+	 */
 	printf("blob\n");
 	printf("mark :%lu\n", ++blob_mark);
 	printf("data %zu\n", strlen(data));
 	printf("%s\n", data);
 
 	ver = rcs_file_find_version(file, revnum, true);
-	ver->blob_mark = blob_mark;
+	ver->blob_mark = blob_mark; /* Save the mark */
+	ver->executable = looks_like_executable(file, data);
 }
 
+/* export blobs for every revision of every file */
 static void
 export_blobs(void)
 {
@@ -103,7 +175,7 @@ export_blobs(void)
 		if (f->binary)
 			continue; /* TODO... */
 
-		rcs_file_read_all_revisions(f, blob_data_handler);
+		rcs_file_read_all_revisions(f, export_revision_blob);
 
 		/*
 		 * This is one of the slowest parts of the conversion, so
@@ -118,67 +190,31 @@ export_blobs(void)
 	}
 }
 
-static bool
-looks_like_script(const char *path)
-{
-	const char *shext[] = {".sh", ".bash", ".pl", ".py"};
-	const char *s;
-	unsigned int i;
-
-	for (i = 0; i < ARRAY_SIZE(shext); ++i) {
-		s = path;
-		while ((s = strstr(s, shext[i]))) {
-			s += strlen(shext[i]);
-			if (!*s)
-				return true;
-		}
-	}
-	return false;
-}
-
-static unsigned int
-file_mode(const struct rcs_file *file)
-{
-	/*
-	 * If the file name looks like a script which is executable in Unix
-	 * environments where execute permissions actually matter, give the
-	 * file execute bits.
-	 *
-	 * If this is too simplistic, we could actually examine the contents of
-	 * the file for "#!/bin/sh" or the like.
-	 */
-	if (looks_like_script(file->name))
-		return 0755;
-
-	/*
-	 * Everything else, including Windows executables and batch files, is
-	 * a normal file.
-	 */
-	return 0644;
-}
-
+/* export file modifications (added or updated files) */
 static void
-export_filemodifies(struct file_change *mods)
+export_filemodifies(const struct file_change *mods)
 {
-	struct file_change *m;
+	const struct file_change *m;
 	struct rcs_version *ver;
 
 	for (m = mods; m; m = m->next) {
 		ver = rcs_file_find_version(m->file, &m->newrev, true);
-		printf("M %o :%lu %s\n", file_mode(m->file), ver->blob_mark,
-			m->file->name);
+		printf("M %o :%lu %s\n", ver->executable ? 0755 : 0644,
+			ver->blob_mark, m->file->name);
 	}
 }
 
+/* export file deletions */
 static void
-export_deletes(struct file_change *deletes)
+export_deletes(const struct file_change *deletes)
 {
-	struct file_change *d;
+	const struct file_change *d;
 
 	for (d = deletes; d; d = d->next)
 		printf("D %s\n", d->file->name);
 }
 
+/* export a commit */
 static void
 export_commit(const struct git_commit *commit)
 {
@@ -192,6 +228,7 @@ export_commit(const struct git_commit *commit)
 	export_deletes(commit->changes.deletes);
 }
 
+/* export a tag to represent an MKSSI checkpoint */
 static void
 export_checkpoint_tag(const char *tag, const char *from_branch,
 	const struct rcs_number *cprevnum)
@@ -212,13 +249,15 @@ export_checkpoint_tag(const char *tag, const char *from_branch,
 	printf("%s\n", patch->log);
 }
 
+/* export a branchpoint */
 static void
-export_branch_create(const char *from_branch, const char *new_branch)
+export_branchpoint(const char *from_branch, const char *new_branch)
 {
 	printf("reset refs/heads/%s\n", new_branch);
 	printf("from refs/heads/%s\n\n", from_branch);
 }
 
+/* generate commits to move from one project revision to the next */
 static struct git_commit *
 get_commit_list(const char *branch, const struct rcs_number *pjrev_old,
 	const struct rcs_number *pjrev_new)
@@ -238,11 +277,18 @@ get_commit_list(const char *branch, const struct rcs_number *pjrev_old,
 	frevs_new = find_checkpoint_file_revisions(pjrev_new);
 	pjver_new = rcs_file_find_version(project, pjrev_new, true);
 
+	/*
+	 * Build a list of changes between the old and new lists of file
+	 * revisions.
+	 */
 	changeset_build(frevs_old, pjver_old ? pjver_old->date : 0, frevs_new,
 		pjver_new->date, &changes);
+
+	/* Merge these changes into a list of commits. */
 	return merge_changeset_into_commits(branch, &changes, pjver_new->date);
 }
 
+/* export all changes from a given project revision */
 static void
 export_project_revision_changes(const struct rcs_number *pjrev_old,
 	const struct rcs_number *pjrev_new)
@@ -251,7 +297,19 @@ export_project_revision_changes(const struct rcs_number *pjrev_old,
 	struct git_commit *commits, *c;
 	struct rcs_symbol *b;
 
+	/*
+	 * Find the checkpoint name associated with this project revision.  Not
+	 * all project revisions have a named checkpoint; it is unknown how such
+	 * project revisions come into existence.
+	 */
 	cpname = pjrev_find_checkpoint(pjrev_new);
+
+	/*
+	 * Find the branch associated with this project revision.  Not all
+	 * project revisions have a branch; it is unknown how that happens.  If
+	 * there is no branch, stop because we don't have anywhere to commit
+	 * the changes.
+	 */
 	branch = pjrev_find_branch(pjrev_new);
 	if (!branch) {
 		fprintf(stderr, "warning: project rev. %s does not have a "
@@ -264,20 +322,27 @@ export_project_revision_changes(const struct rcs_number *pjrev_old,
 		rcs_number_string_sb(pjrev_new), branch,
 		cpname ? cpname : "<none>");
 
+	/* Build a list of commits and export them. */
 	commits = get_commit_list(branch, pjrev_old, pjrev_new);
 	for (c = commits; c; c = c->next)
 		export_commit(c);
 	free_commits(commits);
 
+	/*
+	 * If this project revision is the starting point for any branch(es),
+	 * create those branches now.
+	 */
 	for (b = project_branches; b; b = b->next)
 		if (rcs_number_equal(&b->number, pjrev_new)
 		 && strcmp(b->symbol_name, "master"))
-			export_branch_create(branch, b->symbol_name);
+			export_branchpoint(branch, b->symbol_name);
 
+	/* Create a tag to represent a named checkpoint */
 	if (cpname)
 		export_checkpoint_tag(cpname, branch, pjrev_new);
 }
 
+/* export project changes occurring on a given branch */
 static void
 export_project_branch_changes(const struct rcs_number *pjrev_start,
 	struct rcs_branch *branches)
@@ -290,10 +355,15 @@ export_project_branch_changes(const struct rcs_number *pjrev_start,
 	for (b = branches; b; b = b->next) {
 		pjrev_branch_new = b->number;
 		do {
+			/* Export changes */
 			export_project_revision_changes(
 				&pjrev_branch_old,
 				&pjrev_branch_new);
 
+			/*
+			 * If a branch has been created from this branch,
+			 * export its changes.
+			 */
 			bver = rcs_file_find_version(project,
 				&pjrev_branch_new, true);
 			export_project_branch_changes(&pjrev_branch_new,
@@ -305,6 +375,7 @@ export_project_branch_changes(const struct rcs_number *pjrev_start,
 	}
 }
 
+/* export git fast-import commands for all project changes */
 static void
 export_project_changes(void)
 {
@@ -312,11 +383,15 @@ export_project_changes(void)
 	struct rcs_version *ver;
 	bool first;
 
+	/*
+	 * Initialize to 1.0.  This is incremented to 1.1 at the start of the
+	 * loop, which is the first valid project revision.
+	 */
 	pjrev_new.n[0] = 1;
 	pjrev_new.n[1] = 0;
 	pjrev_new.c = 2;
-	first = true;
-	for (;;) {
+
+	for (first = true;; first = false) {
 		pjrev_old = pjrev_new;
 		rcs_number_increment(&pjrev_new);
 
@@ -330,8 +405,6 @@ export_project_changes(void)
 
 		/* Export changes for any branch that starts here */
 		export_project_branch_changes(&pjrev_new, ver->branches);
-
-		first = false;
 	}
 }
 
@@ -339,7 +412,24 @@ export_project_changes(void)
 void
 export(void)
 {
+	/*
+	 * Read all the revisions of project.pj, extracting and saving from each
+	 * a list of files and their current revision numbers.
+	 *
+	 * This also builds a list of project branches.
+	 */
 	project_read_all_revisions();
+
+	/*
+	 * Export blobs for every revision of every project file.  Doing this
+	 * up-front is an optimization (very worthwhile), since it allows the
+	 * RCS revisioning for each file to be parsed once and only once.
+	 */
 	export_blobs();
+
+	/*
+	 * Export a stream of git fast-import commands which represent the
+	 * history of the MKSSI project.
+	 */
 	export_project_changes();
 }

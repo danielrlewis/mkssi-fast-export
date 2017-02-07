@@ -1,3 +1,4 @@
+/* Entry point for mkssi-fast-export */
 #include <stdlib.h>
 #include <stdio.h>
 #include <sys/types.h>
@@ -88,6 +89,7 @@ main(int argc, char *argv[])
 	int c;
 	const char *author_map;
 
+	/* Parse options */
 	author_map = NULL;
 	for (;;) {
 		c = getopt_long(argc, argv, "hA:ab:", options, NULL);
@@ -122,6 +124,10 @@ main(int argc, char *argv[])
 		}
 	}
 
+	/*
+	 * There should be exactly one argument after the options: the directory
+	 * of the MKSSI project.
+	 */
 	if (argc != optind + 1)
 		usage(argv[0]);
 
@@ -133,6 +139,7 @@ main(int argc, char *argv[])
 		printf("feature done\n");
 	}
 
+	/* Initialize mapping of MKSSI authors to Git identities */
 	if (author_map)
 		author_map_initialize(author_map);
 
@@ -140,15 +147,26 @@ main(int argc, char *argv[])
 	mkssi_dir_validate(argv[optind]);
 	mkssi_dir_path = argv[optind];
 
+	/* Import the RCS masters from the MKSSI project */
 	import();
 
 	if (author_list) {
+		/*
+		 * Dump authors found in the RCS files but not found in the
+		 * author_map (if no author map was given, then all of the
+		 * authors get dumped).  This functionality is provided to make
+		 * it easier to build an author map, or to verify that an
+		 * existing author map is not missing any of a project's
+		 * authors.
+		 */
 		dump_unmapped_authors();
 		exit(0);
 	}
 
+	/* Export the git fast-import commands for the project */
 	export();
 
+	/* Tell git fast-import that we completed successfully */
 	printf("done\n");
 
 	exit(0);

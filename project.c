@@ -1,21 +1,22 @@
+/* Parsing project.pj */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "interfaces.h"
 
-/* list of file revisions for each checkpoint */
-struct cp_files {
-	struct cp_files *next;
+/* list of file revisions for each project.pj revision */
+struct pjrev_files {
+	struct pjrev_files *next;
 	const struct rcs_version *pjver;
 	const struct rcs_file_revision *frevs;
 };
 
-/* Linked list of file revisions included in each checkpoint */
-static struct cp_files *cp_files;
+/* Linked list of file revisions included in each project revision */
+static struct pjrev_files *pjrev_files;
 
 /* validate that a string looks like a given revision of project.pj */
 static void
-validate_project_data(const struct rcs_number *revnum, const char *pjdata)
+validate_project_data(const char *pjdata, const struct rcs_number *revnum)
 {
 	char rev_str[11 + RCS_MAX_REV_LEN + 1];
 
@@ -70,8 +71,7 @@ rcs_file_find(const char *name)
 			/* If the file name looks like 8.3 */
 			if (strlen(s) <= 12 && string_is_upper(s)) {
 				fprintf(stderr, "warning: name case fixup: "
-					"\"%s\" -> \"%s\"\n",
-					f->name, name);
+					"\"%s\" -> \"%s\"\n", f->name, name);
 				strcpy(f->name, name);
 			}
 		}
@@ -345,7 +345,7 @@ project_branch_add(struct rcs_symbol **branches, struct rcs_symbol *branch)
 				*bptr = b->next;
 				free(b->symbol_name);
 				free(b);
-				goto insert;
+				break;
 			}
 
 			/* Branch already in list. */
@@ -355,7 +355,6 @@ project_branch_add(struct rcs_symbol **branches, struct rcs_symbol *branch)
 		bptr = &b->next;
 	}
 
-insert:
 	/* Insert into branch list in sorted order. */
 	bptr = branches;
 	for (b = *bptr; b; b = b->next) {
@@ -391,6 +390,7 @@ project_revision_read_branches(struct rcs_symbol **branches, const char *pjdata)
 	}
 }
 
+/* mark all file revisions recorded in this project.pj revision */
 static void
 mark_checkpointed_revisions(struct rcs_file_revision *frevs)
 {
@@ -404,32 +404,35 @@ mark_checkpointed_revisions(struct rcs_file_revision *frevs)
 	}
 }
 
+/* save a list of files and their revision numbers found in a project rev */
 static void
 save_checkpoint_file_revisions(const struct rcs_number *pjrev,
 	const struct rcs_file_revision *frev_list)
 {
-	struct cp_files *cpf;
+	struct pjrev_files *f;
 
-	cpf = xcalloc(1, sizeof *cpf, __func__);
-	cpf->pjver = rcs_file_find_version(project, pjrev, true);
-	cpf->frevs = frev_list;
-	cpf->next = cp_files;
-	cp_files = cpf;
+	f = xcalloc(1, sizeof *f, __func__);
+	f->pjver = rcs_file_find_version(project, pjrev, true);
+	f->frevs = frev_list;
+	f->next = pjrev_files;
+	pjrev_files = f;
 }
 
+/* find a list of files and their revision numbers for a project revision */
 const struct rcs_file_revision *
 find_checkpoint_file_revisions(const struct rcs_number *pjrev)
 {
-	const struct cp_files *cpf;
+	const struct pjrev_files *f;
 
-	for (cpf = cp_files; cpf; cpf = cpf->next)
-		if (rcs_number_equal(&cpf->pjver->number, pjrev))
-			return cpf->frevs;
+	for (f = pjrev_files; f; f = f->next)
+		if (rcs_number_equal(&f->pjver->number, pjrev))
+			return f->frevs;
 	fatal_error("no saved file revision list for project rev. %s",
 		rcs_number_string_sb(pjrev));
 	return NULL; /* unreachable */
 }
 
+/* interpret a given revision of project.pj */
 static void
 project_data_handler(struct rcs_file *file, const struct rcs_number *revnum,
 	const char *data)
@@ -439,15 +442,29 @@ project_data_handler(struct rcs_file *file, const struct rcs_number *revnum,
 	export_progress("parsing project revision %s",
 		rcs_number_string_sb(revnum));
 
-	validate_project_data(revnum, data);
+	/* Sanity check the revision text */
+	validate_project_data(data, revnum);
 
+	/*
+	 * Read the list of files and file revision numbers that were current
+	 * at the time of this project revision.
+	 */
 	frev_list = project_revision_read_files(data);
-	mark_checkpointed_revisions(frev_list);
+
+	/* Save said list for later. */
 	save_checkpoint_file_revisions(revnum, frev_list);
 
+	/*
+	 * Mark all of these file revisions as checkpointed.  This information
+	 * is useful later when building the changesets.
+	 */
+	mark_checkpointed_revisions(frev_list);
+
+	/* Add any new branches found in this revision */
 	project_revision_read_branches(&project_branches, data);
 }
 
+/* read and parse every revision of project.pj */
 void
 project_read_all_revisions(void)
 {
