@@ -94,7 +94,7 @@ static struct file_change *
 adjust_adds(struct file_change *adds, time_t old_date)
 {
 	struct file_change *c, *update, *new_updates;
-	struct rcs_version *prevver;
+	const struct rcs_version *prevver;
 	struct rcs_number prevrev;
 
 	/*
@@ -143,7 +143,7 @@ adjust_updates(struct file_change *updates)
 {
 	struct file_change *c, *new_updates, *update;
 	struct rcs_number prevrev;
-	struct rcs_patch *patch;
+	const struct rcs_patch *patch;
 
 	/*
 	 * For example, if a file revision jumps from 1.2 to 1.5, we want to
@@ -215,7 +215,7 @@ static struct file_change *
 adjust_deletes(struct file_change *deletes, time_t new_date)
 {
 	struct file_change *c, *update, *new_updates;
-	struct rcs_version *nextver;
+	const struct rcs_version *nextver;
 	struct rcs_number nextrev;
 
 	/*
@@ -288,7 +288,7 @@ remove_nonexistent_file_revisions(struct file_change *changes)
 
 /* compare two adds for sorting purposes */
 static int
-compare_adds(struct file_change *a, struct file_change *b)
+compare_adds(const struct file_change *a, const struct file_change *b)
 {
 	struct rcs_version *aver, *bver;
 
@@ -311,7 +311,7 @@ compare_adds(struct file_change *a, struct file_change *b)
 
 /* compare two updates for sorting purposes */
 static int
-compare_updates(struct file_change *a, struct file_change *b)
+compare_updates(const struct file_change *a, const struct file_change *b)
 {
 	/*
 	 * When dealing with updated revisions to a file, the earlier revision
@@ -326,7 +326,7 @@ compare_updates(struct file_change *a, struct file_change *b)
 
 /* compare two deletes for sorting purposes */
 static int
-compare_deletes(struct file_change *a, struct file_change *b)
+compare_deletes(const struct file_change *a, const struct file_change *b)
 {
 	/* Deletes have no timestamp, so sort by name. */
 	return strcasecmp(a->file->name, b->file->name);
@@ -335,7 +335,8 @@ compare_deletes(struct file_change *a, struct file_change *b)
 /* sort a list of changes using the given comparison function */
 static struct file_change *
 sort_changes(struct file_change *list,
-	int (*compare)(struct file_change *a, struct file_change *b))
+	int (*compare)(const struct file_change *a,
+		const struct file_change *b))
 {
 	struct file_change *head, **prev_next, *c, *cc;
 

@@ -21,7 +21,8 @@ cc -Wall -Wno-unused-function -O2 -march=native -I. -D_GNU_SOURCE \
 	main.c \
 	merge.c \
 	project.c \
-	rcs.c \
+	rcs-binary.c \
+	rcs-text.c \
 	rcs-number.c \
 	utils.c \
 	-o mkssi-fast-export

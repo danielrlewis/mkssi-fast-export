@@ -40,11 +40,11 @@ validate_project_data(const char *pjdata, const struct rcs_number *revnum)
 }
 
 /* find an RCS file in the hash table by name */
-static struct rcs_file *
+static const struct rcs_file *
 rcs_file_find(const char *name)
 {
 	uint32_t bucket;
-	struct rcs_file *f;
+	const struct rcs_file *f;
 	const char *s;
 
 	bucket = hash_string(name) % ARRAY_SIZE(file_hash_table);
@@ -228,7 +228,7 @@ project_revision_read_files(const char *pjdata)
 			fprintf(stderr, "error on line:\n\t%s\n", errline);
 			fatal_error("no RCS master for file \"%s\"", file_path);
 		}
-		if (frev->file->corrupt || frev->file->binary /* TEMP */)
+		if (frev->file->corrupt)
 			free(frev);
 		else {
 			frev->rev = lex_number(rcsnumstr);
@@ -392,10 +392,10 @@ project_revision_read_branches(struct rcs_symbol **branches, const char *pjdata)
 
 /* mark all file revisions recorded in this project.pj revision */
 static void
-mark_checkpointed_revisions(struct rcs_file_revision *frevs)
+mark_checkpointed_revisions(const struct rcs_file_revision *frevs)
 {
 	struct rcs_version *ver;
-	struct rcs_file_revision *frev;
+	const struct rcs_file_revision *frev;
 
 	for (frev = frevs; frev; frev = frev->next) {
 		ver = rcs_file_find_version(frev->file, &frev->rev, false);
@@ -437,7 +437,7 @@ static void
 project_data_handler(struct rcs_file *file, const struct rcs_number *revnum,
 	const char *data)
 {
-	struct rcs_file_revision *frev_list;
+	const struct rcs_file_revision *frev_list;
 
 	export_progress("parsing project revision %s",
 		rcs_number_string_sb(revnum));

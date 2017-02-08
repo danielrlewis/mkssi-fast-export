@@ -99,7 +99,7 @@ commit_msg_updates(const struct file_change *updates)
 	char *msg;
 	const char *log, *label, *pos;
 	char revstr_old[RCS_MAX_REV_LEN], revstr_new[RCS_MAX_REV_LEN];
-	struct rcs_patch *patch;
+	const struct rcs_patch *patch;
 	const struct file_change *u;
 
 	/*

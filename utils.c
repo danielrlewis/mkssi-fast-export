@@ -43,7 +43,7 @@ fatal_error(const char *fmt, ...)
 }
 
 /* convert a time value to an MKSSI time string */
-char *
+const char *
 time2string(time_t date)
 {
 	static char timestr[23];
@@ -196,8 +196,8 @@ parse_mkssi_branch_char(const char *s, int *cp)
 
 /* find a file version by revision number */
 struct rcs_version *
-rcs_file_find_version(struct rcs_file *file, const struct rcs_number *revnum,
-	bool fatalerr)
+rcs_file_find_version(const struct rcs_file *file,
+	const struct rcs_number *revnum, bool fatalerr)
 {
 	struct rcs_version *v;
 
@@ -213,8 +213,8 @@ rcs_file_find_version(struct rcs_file *file, const struct rcs_number *revnum,
 
 /* find a file patch by revision number */
 struct rcs_patch *
-rcs_file_find_patch(struct rcs_file *file, const struct rcs_number *revnum,
-	bool fatalerr)
+rcs_file_find_patch(const struct rcs_file *file,
+	const struct rcs_number *revnum, bool fatalerr)
 {
 	struct rcs_patch *p;
 

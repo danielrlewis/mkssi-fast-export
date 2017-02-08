@@ -230,7 +230,8 @@ lex_number(const char *s)
 
 /* convert a date/time fields into Unix time */
 time_t
-lex_date(const struct rcs_number *n, yyscan_t yyscanner, struct rcs_file *file)
+lex_date(const struct rcs_number *n, yyscan_t yyscanner,
+	const struct rcs_file *file)
 {
 	struct tm tm;
 	time_t d;

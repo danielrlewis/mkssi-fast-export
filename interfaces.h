@@ -90,14 +90,14 @@ struct rcs_file {
 /* list of file revisions */
 struct rcs_file_revision {
 	struct rcs_file_revision *next;
-	struct rcs_file *file;
+	const struct rcs_file *file;
 	struct rcs_number rev;
 };
 
 /* list of changes to files */
 struct file_change {
 	struct file_change *next;
-	struct rcs_file *file;
+	const struct rcs_file *file;
 	struct rcs_number oldrev, newrev;
 };
 
@@ -138,7 +138,7 @@ void import(void);
 /* lex.l */
 struct rcs_number lex_number(const char *s);
 time_t lex_date(const struct rcs_number *n, void *yyscanner,
-	struct rcs_file *file);
+	const struct rcs_file *file);
 
 /* project.c */
 void project_read_all_revisions(void);
@@ -160,11 +160,18 @@ void free_commits(struct git_commit *commit_list);
 void export(void);
 void export_progress(const char *fmt, ...);
 
-/* rcs.c */
+/* rcs-text.c */
 typedef void rcs_revision_data_handler_t(struct rcs_file *file,
 	const struct rcs_number *revnum, const char *data);
 void rcs_file_read_all_revisions(struct rcs_file *file,
 	rcs_revision_data_handler_t *callback);
+
+/* rcs-binary.c */
+typedef void rcs_revision_binary_data_handler_t(struct rcs_file *file,
+	const struct rcs_number *revnum, const unsigned char *data,
+	size_t datalen);
+void rcs_binary_file_read_all_revisions(struct rcs_file *file,
+	rcs_revision_binary_data_handler_t *callback);
 
 /* rcs-number.c */
 bool rcs_number_equal(const struct rcs_number *n1, const struct rcs_number *n2);
@@ -185,7 +192,7 @@ void dump_unmapped_authors(void);
 /* utils.c */
 void fatal_error(char const *fmt, ...);
 void fatal_system_error(char const *fmt, ...);
-char *time2string(time_t date);
+const char *time2string(time_t date);
 uint32_t hash_string(const char *s);
 bool string_is_upper(const char *s);
 bool is_hex_digit(char c);
@@ -194,9 +201,9 @@ void *xcalloc(size_t nmemb, size_t size, const char *legend);
 void *xrealloc(void *ptr, size_t size, const char *legend);
 char *xstrdup(const char *s, const char *legend);
 size_t parse_mkssi_branch_char(const char *s, int *cp);
-struct rcs_version *rcs_file_find_version(struct rcs_file *file,
+struct rcs_version *rcs_file_find_version(const struct rcs_file *file,
 	const struct rcs_number *revnum, bool fatalerr);
-struct rcs_patch *rcs_file_find_patch(struct rcs_file *file,
+struct rcs_patch *rcs_file_find_patch(const struct rcs_file *file,
 	const struct rcs_number *revnum, bool fatalerr);
 
 

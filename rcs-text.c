@@ -1,4 +1,4 @@
-/* Read revision data from plain-text RCS files */
+/* Read revision data from plain-text MKSSI RCS files */
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
@@ -42,7 +42,7 @@ struct rcs_line {
 	size_t len;
 };
 
-/* Buffer an RCS patch in a structured list of such patches */
+/* buffer an RCS patch in a structured list of such patches */
 struct rcs_patch_buffer {
 	/*
 	 * Parent patch.  This is the subsequent revision whose contents are
@@ -673,8 +673,8 @@ read_patch_text(const struct rcs_file *file, const struct rcs_patch *patch)
 	return text;
 }
 
-/* Instantiate a patch buffer */
-static struct rcs_patch_buffer *new_patch_buf(struct rcs_file *file,
+/* instantiate a patch buffer */
+static struct rcs_patch_buffer *new_patch_buf(const struct rcs_file *file,
 	const struct rcs_number *revnum)
 {
 	struct rcs_patch_buffer *pbuf;
@@ -687,9 +687,10 @@ static struct rcs_patch_buffer *new_patch_buf(struct rcs_file *file,
 	return pbuf;
 }
 
-/* Read a file's patches from a given starting revision into patch buffers */
+/* read a file's patches from a given starting revision into patch buffers */
 static struct rcs_patch_buffer *
-read_patches_from_rev(struct rcs_file *file, const struct rcs_number *startrev)
+read_patches_from_rev(const struct rcs_file *file,
+	const struct rcs_number *startrev)
 {
 	struct rcs_number rev;
 	struct rcs_patch_buffer *head, *pbuf, *br_pbuf;
@@ -717,15 +718,15 @@ read_patches_from_rev(struct rcs_file *file, const struct rcs_number *startrev)
 	return head;
 }
 
-/* Read all of a file's patches into a list of patch buffers */
+/* read all of a file's patches into a list of patch buffers */
 static struct rcs_patch_buffer *
-read_patches(struct rcs_file *file)
+read_patches(const struct rcs_file *file)
 {
 	/* Start reading from the head revision */
 	return read_patches_from_rev(file, &file->head);
 }
 
-/* Free a list of patch buffers */
+/* free a list of patch buffers */
 static void
 free_patch_buffers(struct rcs_patch_buffer *patches)
 {
@@ -748,7 +749,7 @@ free_patch_buffers(struct rcs_patch_buffer *patches)
 	}
 }
 
-/* Pass file revision data to the callback */
+/* pass file revision data to the callback */
 static void
 emit_revision(rcs_revision_data_handler_t *callback,
 	struct rcs_file *file, const struct rcs_version *ver,
@@ -774,7 +775,7 @@ emit_revision(rcs_revision_data_handler_t *callback,
 	lines_free(data_lines_expanded);
 }
 
-/* Apply patches and pass the resulting revision data to the callback */
+/* apply patches and pass the resulting revision data to the callback */
 static struct rcs_line *
 apply_patches_and_emit(rcs_revision_data_handler_t *callback,
 	struct rcs_file *file, struct rcs_line *prev_data_lines,
@@ -835,7 +836,7 @@ apply_patches_and_emit(rcs_revision_data_handler_t *callback,
 	return data_lines;
 }
 
-/* Read every RCS revision for a file, passing the data to the callback */
+/* read every RCS revision for a file, passing the data to the callback */
 void
 rcs_file_read_all_revisions(struct rcs_file *file,
 	rcs_revision_data_handler_t *callback)

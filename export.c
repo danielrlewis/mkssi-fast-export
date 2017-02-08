@@ -8,6 +8,8 @@
 #include <string.h>
 #include "interfaces.h"
 
+static unsigned long blob_mark_counter;
+
 /* find a named project checkpoint by project revision number */
 static const char *
 pjrev_find_checkpoint(const struct rcs_number *pjrev)
@@ -24,7 +26,7 @@ pjrev_find_checkpoint(const struct rcs_number *pjrev)
 static const char *
 pjrev_find_branch(const struct rcs_number *pjrev)
 {
-	struct rcs_symbol *b;
+	const struct rcs_symbol *b;
 
 	/* Trunk project revisions go on the trunk, unless... */
 	if (rcs_number_is_trunk(pjrev)) {
@@ -133,7 +135,6 @@ static void
 export_revision_blob(struct rcs_file *file, const struct rcs_number *revnum,
 	const char *data)
 {
-	static unsigned long blob_mark;
 	struct rcs_version *ver;
 
 	/*
@@ -147,13 +148,42 @@ export_revision_blob(struct rcs_file *file, const struct rcs_number *revnum,
 	 * modifications, we refer back to the data blob we want by its mark.
 	 */
 	printf("blob\n");
-	printf("mark :%lu\n", ++blob_mark);
+	printf("mark :%lu\n", ++blob_mark_counter);
 	printf("data %zu\n", strlen(data));
 	printf("%s\n", data);
 
 	ver = rcs_file_find_version(file, revnum, true);
-	ver->blob_mark = blob_mark; /* Save the mark */
+	ver->blob_mark = blob_mark_counter; /* Save the mark */
 	ver->executable = looks_like_executable(file, data);
+}
+
+/* export a blob for the given binary file revision data */
+static void
+export_binary_revision_blob(struct rcs_file *file,
+	const struct rcs_number *revnum, const unsigned char *data,
+	size_t datalen)
+{
+	struct rcs_version *ver;
+
+	/*
+	 * Put a comment in the stream which identifies the blob.  This is only
+	 * for debugging.
+	 */
+	printf("# %s rev. %s\n", file->name, rcs_number_string_sb(revnum));
+
+	/*
+	 * Each blob is given a unique mark number.  Later when committing file
+	 * modifications, we refer back to the data blob we want by its mark.
+	 */
+	printf("blob\n");
+	printf("mark :%lu\n", ++blob_mark_counter);
+	printf("data %zu\n", datalen);
+	fwrite(data, 1, datalen, stdout);
+	putchar('\n');
+
+	ver = rcs_file_find_version(file, revnum, true);
+	ver->blob_mark = blob_mark_counter; /* Save the mark */
+	ver->executable = looks_like_executable(file, (const char *)data);
 }
 
 /* export blobs for every revision of every file */
@@ -173,9 +203,10 @@ export_blobs(void)
 	progress_printed = 0;
 	for (i = 0, f = files; f; f = f->next, ++i) {
 		if (f->binary)
-			continue; /* TODO... */
-
-		rcs_file_read_all_revisions(f, export_revision_blob);
+			rcs_binary_file_read_all_revisions(f,
+				export_binary_revision_blob);
+		else
+			rcs_file_read_all_revisions(f, export_revision_blob);
 
 		/*
 		 * This is one of the slowest parts of the conversion, so
@@ -195,7 +226,7 @@ static void
 export_filemodifies(const struct file_change *mods)
 {
 	const struct file_change *m;
-	struct rcs_version *ver;
+	const struct rcs_version *ver;
 
 	for (m = mods; m; m = m->next) {
 		ver = rcs_file_find_version(m->file, &m->newrev, true);
@@ -294,8 +325,9 @@ export_project_revision_changes(const struct rcs_number *pjrev_old,
 	const struct rcs_number *pjrev_new)
 {
 	const char *cpname, *branch;
-	struct git_commit *commits, *c;
-	struct rcs_symbol *b;
+	struct git_commit *commits;
+	const struct git_commit *c;
+	const struct rcs_symbol *b;
 
 	/*
 	 * Find the checkpoint name associated with this project revision.  Not
@@ -347,8 +379,8 @@ static void
 export_project_branch_changes(const struct rcs_number *pjrev_start,
 	struct rcs_branch *branches)
 {
-	struct rcs_branch *b;
-	struct rcs_version *bver;
+	const struct rcs_branch *b;
+	const struct rcs_version *bver;
 	struct rcs_number pjrev_branch_new, pjrev_branch_old;
 
 	pjrev_branch_old = *pjrev_start;
@@ -380,7 +412,7 @@ static void
 export_project_changes(void)
 {
 	struct rcs_number pjrev_old, pjrev_new;
-	struct rcs_version *ver;
+	const struct rcs_version *ver;
 	bool first;
 
 	/*

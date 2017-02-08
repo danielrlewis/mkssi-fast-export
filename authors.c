@@ -180,7 +180,7 @@ parse_author_map_line(const char *line, unsigned int lineno)
 static void
 add_author_mapping(struct author_map *am, unsigned int lineno)
 {
-	struct author_map *old;
+	const struct author_map *old;
 
 	/* Check for duplicate mapping */
 	for (old = authors_mapped_list; old; old = old->next) {

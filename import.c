@@ -131,7 +131,7 @@ import_rcs_files_in_dir(const char *relative_dir_path)
 {
 	char *relative_path;
 	DIR *dir;
-	struct dirent *de;
+	const struct dirent *de;
 	struct rcs_file *file;
 
 	/* 1024 should be big enough for any file in this directory */
