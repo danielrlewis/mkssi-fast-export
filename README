@@ -1,0 +1,115 @@
+README
+======
+
+mkssi-fast-export exports revision control history from an MKS Source Integrity
+(MKSSI) project, version 7.5a or earlier, as a stream of git fast-import
+commands that will recreate the project and its history as a Git repository.
+
+MKSSI Versions Supported
+-------------------------
+
+mkssi-fast-export is designed specifically for MKSSI v7.5a (released in the year
+2000), and has not been tested with any other version, but earlier versions
+might work.  These old releases of MKSSI stored revision history in RCS
+(Revision Control System) format, with extensions.
+
+Newer versions of MKS Source Integrity, since renamed to PTC Source Integrity,
+store revision history in a database and are not supported by this tool, but
+there may be other options (the Polarian Subversion Importer supports MKS2009
+and later, and converting Subversion to Git is a well-trod path).
+
+Disclaimer
+----------
+
+Like most such programs, this one was improved until it was "good enough" to
+convert one organization's projects to Git.  MKSSI was an enterprise product
+which likely had features not used by these projects and not correctly handled
+by mkssi-fast-export.  There are likely edge cases which mkssi-fast-export does
+not handle correctly.
+
+Limitations
+-----------
+
+MKSSI uses deeply flawed check-in timestamps: it stores the last modification
+time of the file (mtime), rather than the actual time of check-in.  As a result,
+the order of check-ins is not entirely known, and cannot be fully preserved in
+the commits.
+
+To compensate, mkssi-fast-export relies heavily upon MKSSI checkpoints.  This
+program will only work well with MKSSI projects which have been checkpointed on
+a regular basis.  The revision history will look strange if the project was
+rarely checkpointed.  Changes which have never been checkpointed will not be
+included in the exported history, so prior to running mkssi-fast-export, you
+might want to checkpoint each branch one last time.
+
+Due to the problem with MKSSI timestamps, all commits are assigned the timestamp
+of the MKSSI checkpoint which incorporated the changes, rather than preserving
+the original timestamp.
+
+Branch and checkpoint names which are not legal in Git are munged to make them
+so.  There are edge cases where this might result in duplicate names.  Note that
+MKSSI checkpoints are converted into Git tags.
+
+Building
+--------
+
+To build mkssi-fast-export, you must use a Linux system with Flex and Bison
+installed, along with a C compiler.  Run build.sh to create the executable.
+
+Usage
+-----
+
+Run "mkssi-fast-export --help" for usage information.
+
+To convert a repository, run something like the following sequence of commands:
+
+	$ mkdir foobar.git
+	$ cd foobar.git
+	$ git init --bare
+	$ mkssi-fast-export --authormap=authors.txt ../foobar.mkssi | \
+		git fast-import
+	$ git gc --aggressive
+
+A user who is uninitiated into the mysteries of MKSSI might not provide the
+correct project directory.  MKSSI projects can be a bit confusing because there
+are two project directories, and the one mkssi-fast-export needs is not the one
+the user normally interacts with.  The project directory which is normally used
+to create sandboxes and the like does not contain any revision history, only the
+newest copy of each file, including the project.pj file.  There is a second
+project directory which contains all of the RCS file masters, including the
+revisioned copy of project.pj.  This second directory is created automatically
+by MKSSI in a preconfigured location; if you cannot find it, talk to your local
+administrator or MKSSI guru.
+
+Using an author map is not required but highly recommended.  To find a list of
+MKSSI authors, run:
+
+	$ mkssi-fast-export --authorlist foobar.mkssi
+
+The format for the author map is the same as cvs-fast-export, except that the
+optional timestamp field is ignored if present.
+
+Time and Resource Requirements
+------------------------------
+
+mkssi-fast-export might take a few minutes on large repositories; the longest I
+have seen is fifteen minutes.
+
+mkssi-fast-export allocates lots of memory; I have seen it use 1 GB.
+
+Derivative Code
+---------------
+
+mkssi-fast-export borrows code from cvs-fast-export; it is thus a derivative
+work and, like the original, is licensed under the GNU GPL v2 or later.  The
+following code was borrowed:
+
+The struct rcs_* data structures in interfaces.h are simplified versions of data
+structures from cvs-fast-export's cvs.h.
+
+lex.l and gram.y are both based on the cvs-fast-export files of the same name.
+They have been modified to remove support for RCS features not used by MKSSI, to
+add support for MKSSI RCS extensions, and to work with the simplified data
+structures.
+
+Some of the functions in utils.c and rcs-number.c are from cvs-fast-export.
