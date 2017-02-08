@@ -533,14 +533,15 @@ rcs_data_expand_revision_keyword(const struct rcs_version *ver,
 	}
 }
 
-/* insert revision history comment after "$Log$" keyword */
+/* expand "$Log$" keyword and insert revision history comment after it */
 static void
-rcs_data_expand_log_keyword(const struct rcs_version *ver,
-	const struct rcs_patch *patch, struct rcs_line *dlines)
+rcs_data_expand_log_keyword(const struct rcs_file *file,
+	const struct rcs_version *ver, const struct rcs_patch *patch,
+	struct rcs_line *dlines)
 {
 	struct rcs_line *dl, *loghdr, *loglines, *ll;
-	char *lp, *kw, *lnbuf;
-	const char *revstr, *revdate;
+	char *lp, *kw, *lnbuf, *pos;
+	const char *revstr, *revdate, *name;
 	size_t prefixlen;
 
 	for (dl = dlines; dl; dl = dl->next) {
@@ -560,12 +561,43 @@ rcs_data_expand_log_keyword(const struct rcs_version *ver,
 		/* If no closing '$' was found, then not a log keyword */
 		if (*lp != '$')
 			continue;
+		++lp; /* Move past '$' */
 
 		/*
 		 * Any white space or comment characters preceding the log
 		 * keyword need to be included on the log lines.
 		 */
 		prefixlen = kw - dl->line;
+
+		/*
+		 * Whatever "$Log...$" string we find needs to be replaced by
+		 * "$Log: filename $", where filename is the basename of the
+		 * file.
+		 */
+		name = file->name + strlen(file->name) - 1;
+		while (name > file->name && *name != '/')
+			--name;
+		if (*name == '/')
+			++name;
+		lnbuf = xmalloc(prefixlen + 8 + strlen(name) + line_length(lp)
+			+ 1, __func__);
+		pos = lnbuf;
+		memcpy(pos, dl->line, prefixlen);
+		pos += prefixlen;
+		strcpy(pos, "$Log: ");
+		pos += strlen("$Log: ");
+		strcpy(pos, name);
+		pos += strlen(name);
+		strcpy(pos, " $");
+		pos += strlen(" $");
+		memcpy(pos, lp, line_length(lp));
+		pos += line_length(lp);
+		*pos++ = '\0';
+		if (dl->line_allocated)
+			free(dl->line);
+		dl->line = lnbuf;
+		dl->len = pos - lnbuf - 1;
+		dl->line_allocated = true;
 
 		/*
 		 * Generate the first line of the log message from the metadata.
@@ -636,12 +668,13 @@ rcs_data_expand_log_keyword(const struct rcs_version *ver,
 
 /* expand RCS escapes and keywords */
 static void
-rcs_data_keyword_expansion(const struct rcs_version *ver,
-	const struct rcs_patch *patch, struct rcs_line *dlines)
+rcs_data_keyword_expansion(const struct rcs_file *file,
+	const struct rcs_version *ver, const struct rcs_patch *patch,
+	struct rcs_line *dlines)
 {
 	rcs_data_unescape_ats(dlines);
 	rcs_data_expand_revision_keyword(ver, dlines);
-	rcs_data_expand_log_keyword(ver, patch, dlines);
+	rcs_data_expand_log_keyword(file, ver, patch, dlines);
 }
 
 /* read the text of an RCS patch from disk */
@@ -764,7 +797,7 @@ emit_revision(rcs_revision_data_handler_t *callback,
 	 * so make a copy for the expansion.
 	 */
 	data_lines_expanded = lines_copy(data_lines);
-	rcs_data_keyword_expansion(ver, patch, data_lines_expanded);
+	rcs_data_keyword_expansion(file, ver, patch, data_lines_expanded);
 
 	/* Convert the data lines into a string and pass to the callback */
 	data = lines_to_string(data_lines_expanded);
