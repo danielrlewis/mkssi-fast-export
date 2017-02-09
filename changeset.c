@@ -317,8 +317,8 @@ compare_updates(const struct file_change *a, const struct file_change *b)
 	 * When dealing with updated revisions to a file, the earlier revision
 	 * must sort before the later revision.
 	 */
-	if (a->file==b->file && rcs_number_compare(&a->newrev, &b->newrev) < 0)
-		return -1;
+	if (a->file == b->file)
+		return rcs_number_compare(&a->newrev, &b->newrev);
 
 	/* Otherwise the sort is the same as added files */
 	return compare_adds(a, b);
