@@ -101,26 +101,16 @@ line_length(const char *line)
 	return s - line;
 }
 
-/* case-insensitive search for string in line -- like strcasestr() */
+/* search for string in line -- like strstr() */
 static char *
-line_findstrcase(const char *line, const char *str)
+line_findstr(const char *line, const char *str)
 {
 	const char *lp, *sp;
-	char lc, sc;
 
 	for (lp = line; *lp && *lp != '\n'; ++lp) {
-		for (sp = str; *sp; ++sp) {
-			lc = *(lp + (sp - str));
-			sc = *sp;
-
-			if (isalpha(lc))
-				lc = tolower(lc);
-			if (isalpha(sc))
-				sc = tolower(sc);
-
-			if (lc != sc)
+		for (sp = str; *sp; ++sp)
+			if (*(lp + (sp - str)) != *sp)
 				break;
-		}
 		if (!*sp)
 			return (char *)lp;
 	}
@@ -485,7 +475,7 @@ rcs_data_unescape_ats(struct rcs_line *dlines)
 		 * If this line contains an "@@", make sure its line buffer is
 		 * writable.
 		 */
-		if (line_findstrcase(dl->line, "@@"))
+		if (line_findstr(dl->line, "@@"))
 			line_allocate(dl);
 
 		/*
@@ -493,7 +483,7 @@ rcs_data_unescape_ats(struct rcs_line *dlines)
 		 * left to squash the 2nd '@'.
 		 */
 		lp = dl->line;
-		while ((at = line_findstrcase(lp, "@@"))) {
+		while ((at = line_findstr(lp, "@@"))) {
 			memmove(at + 1, at + 2, line_length(at + 2) + 1);
 			lp = at + 1;
 			dl->len--;
@@ -514,7 +504,7 @@ rcs_data_expand_revision_keyword(const struct rcs_version *ver,
 		rcs_number_string_sb(&ver->number));
 	for (dl = dlines; dl; dl = dl->next) {
 		/* Look for the $Revision$ keyword on this line */
-		kw = line_findstrcase(dl->line, "$Revision");
+		kw = line_findstr(dl->line, "$Revision");
 		if (!kw)
 			continue;
 
@@ -568,7 +558,7 @@ rcs_data_expand_id_keyword(const struct rcs_file *file,
 
 	for (dl = dlines; dl; dl = dl->next) {
 		/* Look for the $Id$ keyword on this line */
-		kw = line_findstrcase(dl->line, "$Id");
+		kw = line_findstr(dl->line, "$Id");
 		if (!kw)
 			continue;
 
@@ -627,7 +617,7 @@ rcs_data_expand_log_keyword(const struct rcs_file *file,
 
 	for (dl = dlines; dl; dl = dl->next) {
 		/* Look for the $Log$ keyword on this line */
-		kw = line_findstrcase(dl->line, "$Log");
+		kw = line_findstr(dl->line, "$Log");
 		if (!kw)
 			continue;
 
