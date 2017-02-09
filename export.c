@@ -8,6 +8,13 @@
 #include <string.h>
 #include "interfaces.h"
 
+/*
+ * If this program was to be more general-purpose, this should be a parameter,
+ * which could be overridden on an individual basis by author timezones in the
+ * author map.
+ */
+#define TIMEZONE "-0800"
+
 static unsigned long blob_mark_counter;
 
 /* find a named project checkpoint by project revision number */
@@ -250,8 +257,9 @@ static void
 export_commit(const struct git_commit *commit)
 {
 	printf("commit refs/heads/%s\n", commit->branch);
-	printf("committer %s <%s> %lu -0800\n", commit->committer->name,
-		commit->committer->email, (unsigned long)commit->date);
+	printf("committer %s <%s> %lu %s\n", commit->committer->name,
+		commit->committer->email, (unsigned long)commit->date,
+		TIMEZONE);
 	printf("data %zu\n", strlen(commit->commit_msg));
 	printf("%s\n", commit->commit_msg);
 	export_filemodifies(commit->changes.adds);
@@ -274,8 +282,8 @@ export_checkpoint_tag(const char *tag, const char *from_branch,
 
 	printf("tag %s\n", tag);
 	printf("from refs/heads/%s\n", from_branch);
-	printf("tagger %s <%s> %lu -800\n", tagger->name, tagger->email,
-		(unsigned long)ver->date);
+	printf("tagger %s <%s> %lu %s\n", tagger->name, tagger->email,
+		(unsigned long)ver->date, TIMEZONE);
 	printf("data %zu\n", strlen(patch->log));
 	printf("%s\n", patch->log);
 }
