@@ -557,6 +557,63 @@ rcs_data_expand_revision_keyword(const struct rcs_version *ver,
 	}
 }
 
+/* expand "$Id" keyword */
+static void
+rcs_data_expand_id_keyword(const struct rcs_file *file,
+	const struct rcs_version *ver, struct rcs_line *dlines)
+{
+	struct rcs_line *dl;
+	char *lp, *kw, *txt, *lnbuf, *pos;
+	const char *name;
+
+	for (dl = dlines; dl; dl = dl->next) {
+		/* Look for the $Id$ keyword on this line */
+		kw = line_findstrcase(dl->line, "$Id");
+		if (!kw)
+			continue;
+
+		/*
+		 * Before the closing '$', there can be other characters, such
+		 * as a previously expanded version of the keyword.
+		 */
+		lp = kw + strlen("$Id");
+		for (; *lp && *lp != '\n' && *lp != '$'; ++lp)
+			;
+
+		/* If no closing '$' was found, then not an id keyword */
+		if (*lp != '$')
+			continue;
+		++lp; /* Move past '$' */
+
+		name = file->name + strlen(file->name) - 1;
+		while (name > file->name && *name != '/')
+			--name;
+		if (*name == '/')
+			++name;
+
+		txt = sprintf_alloc("$Id: %s %s %s %s %s $", name,
+			rcs_number_string_sb(&ver->number),
+			time2string(ver->date), ver->author, ver->state);
+
+		pos = lnbuf = xmalloc((kw - dl->line) + strlen(txt) +
+			line_length(lp) + 1, __func__);
+		memcpy(pos, dl->line, kw - dl->line);
+		pos += kw - dl->line;
+		strcpy(pos, txt);
+		pos += strlen(txt);
+		memcpy(pos, lp, line_length(lp));
+		pos += line_length(lp);
+		*pos++ = '\0';
+		if (dl->line_allocated)
+			free(dl->line);
+		dl->line = lnbuf;
+		dl->len = pos - lnbuf - 1;
+		dl->line_allocated = true;
+
+		free(txt);
+	}
+}
+
 /* expand "$Log$" keyword and insert revision history comment after it */
 static void
 rcs_data_expand_log_keyword(const struct rcs_file *file,
@@ -699,6 +756,7 @@ rcs_data_keyword_expansion(const struct rcs_file *file,
 {
 	rcs_data_unescape_ats(dlines);
 	rcs_data_expand_revision_keyword(ver, dlines);
+	rcs_data_expand_id_keyword(file, ver, dlines);
 	rcs_data_expand_log_keyword(file, ver, patch, dlines);
 }
 

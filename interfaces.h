@@ -192,6 +192,7 @@ void dump_unmapped_authors(void);
 /* utils.c */
 void fatal_error(char const *fmt, ...);
 void fatal_system_error(char const *fmt, ...);
+char *sprintf_alloc_append(char *buf, const char *fmt, ...);
 const char *time2string(time_t date);
 uint32_t hash_string(const char *s);
 bool is_hex_digit(char c);
@@ -204,6 +205,9 @@ struct rcs_version *rcs_file_find_version(const struct rcs_file *file,
 	const struct rcs_number *revnum, bool fatalerr);
 struct rcs_patch *rcs_file_find_patch(const struct rcs_file *file,
 	const struct rcs_number *revnum, bool fatalerr);
+
+/* like sprintf(), but malloc() the output buffer (must be freed by caller) */
+#define sprintf_alloc(fmt, ...) sprintf_alloc_append(NULL, fmt, ##__VA_ARGS__)
 
 
 #define YY_DECL int yylex \

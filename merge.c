@@ -33,33 +33,6 @@ file_revision_label(const struct rcs_file *file, const struct rcs_number *rev)
 	return NULL;
 }
 
-/* append formatted content to realloc()'d buffer */
-static char *
-sprintf_alloc_append(char *buf, const char *fmt, ...)
-{
-	va_list args;
-	int oldlen, len;
-
-	/* Determine how big the output buffer needs to be */
-	oldlen = buf ? strlen(buf) : 0;
-	va_start(args, fmt);
-	len = oldlen + vsnprintf(NULL, 0, fmt, args) + 1; /* +1 for NUL */
-	va_end(args);
-
-	/* (Re)allocate the output buffer */
-	buf = xrealloc(buf, len, __func__);
-
-	/* Populate the output buffer */
-	va_start(args, fmt);
-	vsnprintf(buf + oldlen, len, fmt, args);
-	va_end(args);
-
-	return buf;
-}
-
-/* like sprintf(), but malloc() the output buffer (must be freed by caller) */
-#define sprintf_alloc(fmt, ...) sprintf_alloc_append(NULL, fmt, ##__VA_ARGS__)
-
 /* generate commit message for an add commit */
 static char *
 commit_msg_adds(const struct file_change *adds)
