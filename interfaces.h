@@ -1,6 +1,7 @@
 #ifndef INTERFACES_H
 #define INTERFACES_H
 
+#include <stdio.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <time.h>
@@ -122,8 +123,44 @@ struct git_commit {
 	struct file_change_lists changes;
 };
 
+/* line from an RCS patch or file revision data */
+struct rcs_line {
+	/* Next in linked list of lines */
+	struct rcs_line *next;
+
+	/*
+	 * _Original_ RCS line number.  Does not change while a patch is being
+	 * applied; only updated after the whole patch is applied.  This is
+	 * because the RCS patch line numbers refer to the previous unpatched
+	 * version of the data.  While a patch is being applied, inserted lines
+	 * have no line number.
+	 */
+	unsigned int lineno;
+
+	/*
+	 * Pointer to the line; terminated by \n, \r\n, _or_ NUL.  If
+	 * line_allocated is false, this is pointing into another buffer and
+	 * must _not_ be modified or passed to free().  May be NULL for deleted
+	 * lines while a patch is being applied.
+	 */
+	char *line;
+
+	/*
+	 * Whether the line buffer is an independently allocated buffer.  The
+	 * line cannot be modified unless this is true.
+	 */
+	bool line_allocated;
+
+	/* Length of the line, excluding terminating newline/NUL */
+	size_t len;
+
+	/* The very last line of a buffer might not include a newline. */
+	bool no_newline;
+};
+
 /* main.c */
 extern const char *mkssi_dir_path;
+extern const char *source_dir_path;
 extern struct rcs_file *files;
 extern struct rcs_file *file_hash_table[1024];
 extern struct rcs_file *corrupt_files;
@@ -173,6 +210,12 @@ typedef void rcs_revision_binary_data_handler_t(struct rcs_file *file,
 void rcs_binary_file_read_all_revisions(struct rcs_file *file,
 	rcs_revision_binary_data_handler_t *callback);
 
+/* rcs-keyword.c */
+void
+rcs_data_keyword_expansion(const struct rcs_file *file,
+	const struct rcs_version *ver, const struct rcs_patch *patch,
+	struct rcs_line *dlines);
+
 /* rcs-number.c */
 bool rcs_number_equal(const struct rcs_number *n1, const struct rcs_number *n2);
 bool rcs_number_partial_match(const struct rcs_number *num,
@@ -188,6 +231,21 @@ const char *rcs_number_string_sb(const struct rcs_number *n);
 void author_map_initialize(const char *author_map_path);
 const struct git_author *author_map(const char *author);
 void dump_unmapped_authors(void);
+
+/* line.c */
+struct rcs_line *string_to_lines(char *str);
+char *lines_to_string(const struct rcs_line *lines);
+void lines_free(struct rcs_line *lines);
+void lines_reset(struct rcs_line **lines);
+size_t line_length(const char *line);
+char *line_findstr(const char *line, const char *str);
+void line_fprint(FILE *out, const char *line);
+struct rcs_line *lines_copy(const struct rcs_line *lines);
+void line_allocate(struct rcs_line *line);
+bool lines_insert(struct rcs_line **lines, struct rcs_line *insert,
+	unsigned int lineno, unsigned int count);
+bool lines_delete(struct rcs_line *lines, unsigned int lineno,
+	unsigned int count);
 
 /* utils.c */
 void fatal_error(char const *fmt, ...);

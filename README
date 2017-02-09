@@ -104,12 +104,13 @@ mkssi-fast-export borrows code from cvs-fast-export; it is thus a derivative
 work and, like the original, is licensed under the GNU GPL v2 or later.  The
 following code was borrowed:
 
-The struct rcs_* data structures in interfaces.h are simplified versions of data
-structures from cvs-fast-export's cvs.h.
+Several data structures in interfaces.h -- struct rcs_number, struct rcs_symbol,
+struct rcs_branch, struct rcs_version, struct rcs_text, struct rcs_patch, and
+struct rcs_file -- were based on data structures from cvs-fast-export's cvs.h.
 
 lex.l and gram.y are both based on the cvs-fast-export files of the same name.
 They have been modified to remove support for RCS features not used by MKSSI, to
-add support for MKSSI RCS extensions, and to work with the simplified data
+add support for MKSSI RCS extensions, and to work with the altered data
 structures.
 
 Some of the functions in utils.c and rcs-number.c are from cvs-fast-export.

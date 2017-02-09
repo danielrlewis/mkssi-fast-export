@@ -18,10 +18,12 @@ cc -Wall -Wno-unused-function -O2 -march=native -I. -D_GNU_SOURCE \
 	gram.c \
 	import.c \
 	lex.c \
+	lines.c \
 	main.c \
 	merge.c \
 	project.c \
 	rcs-binary.c \
+	rcs-keyword.c \
 	rcs-text.c \
 	rcs-number.c \
 	utils.c \

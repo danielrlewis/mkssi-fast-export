@@ -11,6 +11,7 @@
 #include "lex.h"
 
 const char *mkssi_dir_path;
+const char *source_dir_path;
 struct rcs_file *files;
 struct rcs_file *file_hash_table[1024];
 struct rcs_file *corrupt_files;
@@ -34,6 +35,8 @@ usage(const char *name)
 		"exit\n");
 	fprintf(stderr, "  -b --trunk-branch=rev  Trunk branch revision number "
 		"(trunk as branch)\n");
+	fprintf(stderr, "  -S --source-dir=path  Directory to use for $Source$ "
+		"keyword\n");
 	exit(1);
 }
 
@@ -84,6 +87,7 @@ main(int argc, char *argv[])
 		{ "authormap", required_argument, 0, 'A'},
 		{ "authorlist", no_argument, 0, 'a'},
 		{ "trunk-branch", required_argument, 0, 'b'},
+		{ "source-dir", required_argument, 0, 'S' },
 		{ NULL }
 	};
 	int c;
@@ -92,7 +96,7 @@ main(int argc, char *argv[])
 	/* Parse options */
 	author_map = NULL;
 	for (;;) {
-		c = getopt_long(argc, argv, "hA:ab:", options, NULL);
+		c = getopt_long(argc, argv, "hA:ab:S:", options, NULL);
 		if (c < 0)
 			break;
 		switch (c) {
@@ -116,6 +120,9 @@ main(int argc, char *argv[])
 			project_branches->symbol_name = xstrdup("master",
 				__func__);
 			project_branches->number = trunk_branch;
+			break;
+		case 'S':
+			source_dir_path = optarg;
 			break;
 		default: /* error message already emitted */
 			fprintf(stderr, "try `%s --help' for more "
