@@ -245,6 +245,14 @@ lines_insert(struct rcs_line **lines, struct rcs_line *insert,
 		addln->next = nextln;
 		*prev_next = addln;
 		prev_next = &addln->next;
+
+		/*
+		 * If inserting the last line at the very end of the buffer, do
+		 * not add a newline if the inserted line lacks one.
+		 */
+		if (!addln->next && !insert->next)
+			addln->no_newline = insert->no_newline;
+
 		insert = insert->next;
 	}
 	return true;
