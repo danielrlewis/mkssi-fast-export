@@ -45,7 +45,6 @@ rcs_file_find(const char *name)
 {
 	uint32_t bucket;
 	const struct rcs_file *f;
-	const char *s;
 
 	bucket = hash_string(name) % ARRAY_SIZE(file_hash_table);
 	for (f = file_hash_table[bucket]; f; f = f->hash_next) {
@@ -54,26 +53,19 @@ rcs_file_find(const char *name)
 
 		/*
 		 * Kluge: For historical reasons, some of the old source files
-		 * with 8.3 file names are stored with UPPERCASE file names even
-		 * though they are lower- or mixed-case in the MKSSI file
-		 * revision list, and thus get converted to lower- or mixed-case
-		 * in MKSSI sandboxes.  We assume here that a case mismatch of
-		 * an uppercase 8.3 name is due to this problem, and thus allow
-		 * the search name to supersede the file name.  This avoids
-		 * exporting the file with letters of the wrong case, causing
-		 * build failures.  This really should happen elsewhere.
+		 * and directories with 8.3 file names are stored with UPPERCASE
+		 * names even though they are lower- or mixed-case in the MKSSI
+		 * file revision list, and thus get converted to lower- or
+		 * mixed-case in MKSSI sandboxes.  We assume here that a case
+		 * mismatch of an uppercase 8.3 name is due to this problem, and
+		 * thus allow the search name to supersede the file name.  This
+		 * avoids exporting the file with letters of the wrong case,
+		 * causing build failures.  This really should happen elsewhere.
 		 */
 		if (strcmp(f->name, name)) {
-			s = f->name + strlen(f->name);
-			for (; *s != '/' && s > f->name; --s)
-				;
-
-			/* If the file name looks like 8.3 */
-			if (strlen(s) <= 12 && string_is_upper(s)) {
-				fprintf(stderr, "warning: name case fixup: "
-					"\"%s\" -> \"%s\"\n", f->name, name);
-				strcpy(f->name, name);
-			}
+			fprintf(stderr, "warning: name case fixup: "
+				"\"%s\" -> \"%s\"\n", f->name, name);
+			strcpy(f->name, name);
 		}
 		return f;
 	}

@@ -70,16 +70,6 @@ hash_string(const char *s)
 	return hash;
 }
 
-/* return whether a string is ALLCAPS */
-bool
-string_is_upper(const char *s)
-{
-	for (; *s; ++s)
-		if (isalpha(*s) && !isupper(*s))
-			return false;
-	return true;
-}
-
 /* is a character a hexadecimal digit */
 bool
 is_hex_digit(char c)

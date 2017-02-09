@@ -194,7 +194,6 @@ void fatal_error(char const *fmt, ...);
 void fatal_system_error(char const *fmt, ...);
 const char *time2string(time_t date);
 uint32_t hash_string(const char *s);
-bool string_is_upper(const char *s);
 bool is_hex_digit(char c);
 void *xmalloc(size_t size, const char *legend);
 void *xcalloc(size_t nmemb, size_t size, const char *legend);
