@@ -261,7 +261,7 @@ static struct git_commit *
 merge_updates(const char *branch, struct file_change *update_list,
 	time_t cp_date)
 {
-	struct file_change *u, *uu, *uuu, *update;
+	struct file_change *u, *uu, *update;
 	struct file_change **old_prev_next, **new_prev_next;
 	struct git_commit *head, **prev_next, *c;
 	const struct rcs_version *ver, *upd_ver;
@@ -304,25 +304,11 @@ merge_updates(const char *branch, struct file_change *update_list,
 		new_prev_next = &update->next;
 		for (u = update_list; u; u = u->next) {
 			/*
-			 * Never update the same file more than once in any
-			 * commit -- that would lose revision history.
-			 *
-			 * This code is perfect in every way, especially the
-			 * variable names.
+			 * TODO: What if a file is updated multiple times in the
+			 * same checkpoint with the same comment?
 			 */
-			for (uuu = update; uuu; uuu = uuu->next) {
-				/*
-				 * Break out once we reach that part of the
-				 * list which has not been merged.
-				 */
-				for (uu = update_list; uu != u; uu = uu->next)
-					if (uu == uuu)
-						goto next_check;
-
-				if (uuu->file == u->file)
-					goto not_match;
-			}
-next_check:
+			if (u->file == update->file)
+				goto not_match;
 
 			/*
 			 * Don't merge a later revision of a file such that it
