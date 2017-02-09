@@ -256,16 +256,89 @@ merge_adds(const char *branch, struct file_change *add_list, time_t cp_date)
 	return head;
 }
 
+/* merge any un-merged updates which match the given update */
+static void
+merge_matching_updates(struct file_change *merge_head,
+	struct file_change **unmerged_head)
+{
+	struct file_change *unmerged, *unmerged_next, *u;
+	const struct rcs_version *ver, *upd_ver;
+	const struct rcs_patch *patch, *upd_patch;
+	struct file_change **unmerged_prev_next, **merged_prev_next;
+	int cmp;
+
+	ver = rcs_file_find_version(merge_head->file, &merge_head->newrev,
+		true);
+	patch = rcs_file_find_patch(merge_head->file, &merge_head->newrev,
+		true);
+
+	merge_head->next = NULL;
+
+	/* Search for updates sharing an author and comment */
+	unmerged_prev_next = unmerged_head;
+	merged_prev_next = &merge_head->next;
+	for (unmerged = *unmerged_head; unmerged; unmerged = unmerged_next) {
+		unmerged_next = unmerged->next;
+
+		/*
+		 * Never update the same file more than once in any commit --
+		 * that would lose revision history.
+		 */
+		for (u = merge_head; u; u = u->next)
+			if (u->file == unmerged->file)
+				goto not_match;
+
+		/*
+		 * Don't merge a later revision of a file such that it is
+		 * committed before an earlier revision.  (No need to look at
+		 * the revision numbers, because the list is sorted and later
+		 * entries will have a higher revision number.)
+		 */
+		for (u = *unmerged_head; u != unmerged; u = u->next)
+			if (u->file == unmerged->file)
+				goto not_match;
+
+		/*
+		 * Never merge reverted revisions -- these have
+		 * no true author or log.  They are also rare.
+		 */
+		cmp = rcs_number_compare(&unmerged->newrev, &unmerged->oldrev);
+		if (cmp < 0)
+			goto not_match;
+
+		upd_ver = rcs_file_find_version(unmerged->file,
+			&unmerged->newrev, true);
+		upd_patch = rcs_file_find_patch(unmerged->file,
+			&unmerged->newrev, true);
+
+		if (!strcasecmp(upd_ver->author, ver->author)
+		 && !strcmp(upd_patch->log, patch->log)) {
+			/* Remove from the old list. */
+			*unmerged_prev_next = unmerged->next;
+
+			/* Append this add to the commit. */
+			*merged_prev_next = unmerged;
+			merged_prev_next = &unmerged->next;
+			unmerged->next = NULL;
+		} else {
+not_match:
+			/*
+			 * Save the next pointer, so that if the next update has
+			 * the same author and comment, it can be removed from
+			 * the original list.
+			 */
+			unmerged_prev_next = &unmerged->next;
+		}
+	}
+}
+
 /* merge updates into commits */
 static struct git_commit *
 merge_updates(const char *branch, struct file_change *update_list,
 	time_t cp_date)
 {
-	struct file_change *u, *uu, *update;
-	struct file_change **old_prev_next, **new_prev_next;
+	struct file_change *update;
 	struct git_commit *head, **prev_next, *c;
-	const struct rcs_version *ver, *upd_ver;
-	const struct rcs_patch *patch, *upd_patch;
 
 	/*
 	 * Batch together updates which have the same author and revision
@@ -277,83 +350,24 @@ merge_updates(const char *branch, struct file_change *update_list,
 	for (update = update_list; update; update = update_list) {
 		update_list = update->next;
 
-		ver = rcs_file_find_version(update->file, &update->newrev,
-			true);
-		patch = rcs_file_find_patch(update->file, &update->newrev,
-			true);
-
 		c = xcalloc(1, sizeof *c, __func__);
 		c->branch = branch;
 		c->date = cp_date;
 		c->changes.updates = update;
 
-		/*
-		 * If a file was reverted to an earlier version, there is no way
-		 * to know who did it.
-		 */
 		if (rcs_number_compare(&update->newrev, &update->oldrev) < 0) {
+			/*
+			 * If a file was reverted to an earlier version, there
+			 * is no way to know who did it.
+			 */
 			c->committer = &unknown_author;
 			update->next = NULL;
-			goto commit_message;
+		} else {
+			c->committer = author_map(rcs_file_find_version(
+				update->file, &update->newrev, true)->author);
+			merge_matching_updates(update, &update_list);
 		}
 
-		c->committer = author_map(ver->author);
-
-		/* Search for updates sharing an author and comment */
-		old_prev_next = &update_list;
-		new_prev_next = &update->next;
-		for (u = update_list; u; u = u->next) {
-			/*
-			 * TODO: What if a file is updated multiple times in the
-			 * same checkpoint with the same comment?
-			 */
-			if (u->file == update->file)
-				goto not_match;
-
-			/*
-			 * Don't merge a later revision of a file such that it
-			 * is committed before an earlier revision.  (No need to
-			 * look at the revision numbers, because the list is
-			 * sorted and later entries will have a higher revision
-			 * number.)
-			 */
-			for (uu = update_list; uu != u; uu = uu->next)
-				if (uu->file == u->file)
-					goto not_match;
-
-			/*
-			 * Never merge reverted revisions -- these have
-			 * no true author or log.  They are also rare.
-			 */
-			if (rcs_number_compare(&u->newrev, &u->oldrev) < 0)
-				goto not_match;
-
-			upd_ver = rcs_file_find_version(u->file, &u->newrev,
-				true);
-			upd_patch = rcs_file_find_patch(u->file, &u->newrev,
-				true);
-
-			if (!strcasecmp(upd_ver->author, ver->author)
-			 && !strcmp(upd_patch->log, patch->log)) {
-				/* Append this add to the commit. */
-				*new_prev_next = u;
-				new_prev_next = &u->next;
-
-				/* Remove from the old list. */
-				*old_prev_next = u->next;
-			} else
-not_match:
-				/*
-				 * Save the next pointer, so that if the
-				 * next update has the same author and
-				 * comment, it can be removed from the
-				 * original list.
-				 */
-				old_prev_next = &u->next;
-		}
-		*new_prev_next = NULL;
-
-commit_message:
 		c->commit_msg = commit_msg_updates(c->changes.updates);
 
 		/* Append this commit to the list. */
