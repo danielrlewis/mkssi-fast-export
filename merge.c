@@ -261,7 +261,8 @@ static struct git_commit *
 merge_updates(const char *branch, struct file_change *update_list,
 	time_t cp_date)
 {
-	struct file_change *u, *update, **old_prev_next, **new_prev_next;
+	struct file_change *u, *uu, *uuu, *update;
+	struct file_change **old_prev_next, **new_prev_next;
 	struct git_commit *head, **prev_next, *c;
 	const struct rcs_version *ver, *upd_ver;
 	const struct rcs_patch *patch, *upd_patch;
@@ -305,9 +306,35 @@ merge_updates(const char *branch, struct file_change *update_list,
 			/*
 			 * Never update the same file more than once in any
 			 * commit -- that would lose revision history.
+			 *
+			 * This code is perfect in every way, especially the
+			 * variable names.
 			 */
-			if (u->file == update->file)
-				goto not_match;
+			for (uuu = update; uuu; uuu = uuu->next) {
+				/*
+				 * Break out once we reach that part of the
+				 * list which has not been merged.
+				 */
+				for (uu = update_list; uu != u; uu = uu->next)
+					if (uu == uuu)
+						goto next_check;
+
+				if (uuu->file == u->file)
+					goto not_match;
+			}
+next_check:
+
+			/*
+			 * Don't merge a later revision of a file such that it
+			 * is committed before an earlier revision.  (No need to
+			 * look at the revision numbers, because the list is
+			 * sorted and later entries will have a higher revision
+			 * number.)
+			 */
+			for (uu = update_list; uu != u; uu = uu->next)
+				if (uu->file == u->file)
+					goto not_match;
+
 			/*
 			 * Never merge reverted revisions -- these have
 			 * no true author or log.  They are also rare.

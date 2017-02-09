@@ -234,7 +234,7 @@ adjust_deletes(struct file_change *deletes, time_t new_date)
 			nextver = rcs_file_find_version(c->file, &nextrev,
 				false);
 			if (!nextver || nextver->checkpointed
-			 || nextver->date <= new_date)
+			 || nextver->date > new_date)
 				break;
 
 			/*
