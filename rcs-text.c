@@ -10,6 +10,15 @@
 #include <fcntl.h>
 #include "interfaces.h"
 
+/*
+ * Note on line endings: MKSSI RCS files use Unix line endings.  For most files,
+ * that includes the patches -- however, a handful of files use Windows newlines
+ * in the patches.  These are implicitly converted to Unix newlines by this
+ * module.  Note that a \r which is NOT followed by a \n is not considered to be
+ * a newline -- these show up inside patch text sometimes, but MKSSI does not
+ * count them as line endings.
+ */
+
 /* line from an RCS patch or file revision data */
 struct rcs_line {
 	/* Next in linked list of lines */
@@ -25,7 +34,7 @@ struct rcs_line {
 	unsigned int lineno;
 
 	/*
-	 * Pointer to the line; terminated by newline _or_ NUL.  If
+	 * Pointer to the line; terminated by \n, \r\n, _or_ NUL.  If
 	 * line_allocated is false, this is pointing into another buffer and
 	 * must _not_ be modified or passed to free().  May be NULL for deleted
 	 * lines while a patch is being applied.
@@ -40,6 +49,9 @@ struct rcs_line {
 
 	/* Length of the line, excluding terminating newline/NUL */
 	size_t len;
+
+	/* The very last line of a buffer might not include a newline. */
+	bool no_newline;
 };
 
 /* buffer an RCS patch in a structured list of such patches */
@@ -74,14 +86,18 @@ struct rcs_patch_buffer {
 	struct rcs_line *lines;
 };
 
-/* find the length of a line string (newline or NUL terminated) */
+/* find the length of a line string (\n, \r\n, or NUL terminated) */
 static size_t
 line_length(const char *line)
 {
 	const char *s;
 
-	for (s = line; *s && *s != '\n'; ++s)
-		;
+	for (s = line; *s; ++s) {
+		if (*s == '\n')
+			break;
+		if (*s == '\r' && s[1] == '\n')
+			break;
+	}
 	return s - line;
 }
 
@@ -132,7 +148,7 @@ string_to_lines(char *str)
 	lineno = 1;
 	prev_next = &head;
 	for (lnptr = str; *lnptr;) {
-		ln = xmalloc(sizeof *ln, __func__);
+		ln = xcalloc(1, sizeof *ln, __func__);
 		ln->lineno = lineno;
 		ln->line = lnptr;
 		ln->line_allocated = false;
@@ -143,8 +159,14 @@ string_to_lines(char *str)
 		lineno++;
 
 		lnptr += ln->len;
+
+		if (*lnptr == '\r' && lnptr[1] == '\n')
+			++lnptr;
+
 		if (*lnptr == '\n')
 			++lnptr;
+		else
+			ln->no_newline = true;
 	}
 	*prev_next = NULL;
 	return head;
@@ -172,7 +194,8 @@ lines_to_string(const struct rcs_line *lines)
 		if (ln->line) {
 			memcpy(pos, ln->line, ln->len);
 			pos += ln->len;
-			*pos++ = '\n';
+			if (!ln->no_newline)
+				*pos++ = '\n';
 		}
 	*pos = '\0';
 
@@ -238,6 +261,7 @@ lines_copy(const struct rcs_line *lines)
 		copy->line[ln->len] = '\0';
 		copy->line_allocated = true;
 		copy->len = ln->len;
+		copy->no_newline = ln->no_newline;
 		*prev_next = copy;
 		prev_next = &copy->next;
 	}
@@ -296,7 +320,7 @@ lines_insert(struct rcs_line **lines, struct rcs_line *insert,
 				lineno, count, i);
 			return false;
 		}
-		addln = xmalloc(sizeof *addln, __func__);
+		addln = xcalloc(1, sizeof *addln, __func__);
 		addln->lineno = 0; /* Added lines have no number */
 		addln->line = insert->line;
 		addln->line_allocated = false;
@@ -643,6 +667,7 @@ rcs_data_expand_log_keyword(const struct rcs_file *file,
 				ll->line = lnbuf;
 				ll->line_allocated = true;
 				ll->len = prefixlen + ll->len;
+				ll->no_newline = false;
 			}
 
 			/* Make ll point at the last of the log lines */
