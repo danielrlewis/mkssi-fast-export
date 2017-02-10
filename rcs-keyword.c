@@ -8,6 +8,26 @@
 typedef char *(keyword_expander_t)(const struct rcs_file *file,
 	const struct rcs_version *ver);
 
+/* get the name element of a path */
+const char *
+path_to_name(const char *path)
+{
+	const char *name;
+
+	/* For example: "a/b/c" yields "c", "a" yields "a" */
+
+	if (!*path)
+		return path;
+
+	name = path + strlen(path) - 1;
+	while (name > path && *name != '/')
+		--name;
+	if (*name == '/')
+		++name;
+
+	return name;
+}
+
 /* generate an expanded $Author$ keyword string */
 static char *
 expanded_author_str(const struct rcs_file *file,
@@ -39,15 +59,7 @@ static char *
 expanded_id_str(const struct rcs_file *file,
 	const struct rcs_version *ver)
 {
-	const char *name;
-
-	name = file->name + strlen(file->name) - 1;
-	while (name > file->name && *name != '/')
-		--name;
-	if (*name == '/')
-		++name;
-
-	return sprintf_alloc("$Id: %s %s %s %s %s $", name,
+	return sprintf_alloc("$Id: %s %s %s %s %s $", path_to_name(file->name),
 		rcs_number_string_sb(&ver->number), time2string(ver->date),
 		ver->author, ver->state);
 }
@@ -57,15 +69,7 @@ static char *
 expanded_log_str(const struct rcs_file *file,
 	const struct rcs_version *ver)
 {
-	const char *name;
-
-	name = file->name + strlen(file->name) - 1;
-	while (name > file->name && *name != '/')
-		--name;
-	if (*name == '/')
-		++name;
-
-	return sprintf_alloc("$Log: %s $", name);
+	return sprintf_alloc("$Log: %s $", path_to_name(file->name));
 }
 
 /* generate an expanded $Revision$ keyword string */
@@ -164,9 +168,8 @@ rcs_data_expand_log_keyword(const struct rcs_file *file,
 	struct rcs_line *dlines)
 {
 	struct rcs_line *dl, *loghdr, *loglines, *ll;
-	char *lp, *kw, *lnbuf, *log;
-	const char *revstr, *revdate, *name;
-	size_t prefixlen;
+	char *lp, *kw, *lnbuf, *log, *hdr, *pos;
+	size_t prefix_len, postfix_len, postfix_start;
 
 	for (dl = dlines; dl; dl = dl->next) {
 		/* Look for the $Log$ keyword on this line */
@@ -188,24 +191,20 @@ rcs_data_expand_log_keyword(const struct rcs_file *file,
 		++lp; /* Move past '$' */
 
 		/*
-		 * Any white space or comment characters preceding the log
-		 * keyword need to be included on the log lines.
+		 * Any white space or comment characters preceding and following
+		 * the log keyword need to be included on the log lines.
 		 */
-		prefixlen = kw - dl->line;
+		prefix_len = kw - dl->line;
+		postfix_start = lp - dl->line;
+		postfix_len = dl->len - postfix_start;
 
 		/*
 		 * Whatever "$Log...$" string we find needs to be replaced by
 		 * "$Log: filename $", where filename is the basename of the
 		 * file.
 		 */
-		name = file->name + strlen(file->name) - 1;
-		while (name > file->name && *name != '/')
-			--name;
-		if (*name == '/')
-			++name;
-
 		log = expanded_log_str(file, ver);
-		expand_keyword(dl, prefixlen, lp - dl->line, log);
+		expand_keyword(dl, prefix_len, postfix_start, log);
 		free(log);
 
 		/*
@@ -215,16 +214,19 @@ rcs_data_expand_log_keyword(const struct rcs_file *file,
 		 * 	Revision 1.8  2012/12/11 23:45:55Z  daniel.lewis
 		 */
 		loghdr = xcalloc(1, sizeof *loghdr, __func__);
-		revstr = rcs_number_string_sb(&ver->number);
-		revdate = time2string(ver->date);
-		loghdr->len = prefixlen + strlen("Revision ") +
-			strlen(revstr) + strlen("  ") + strlen(revdate) +
-			strlen("  ") + strlen(ver->author);
-		loghdr->line = xmalloc(loghdr->len + 1, __func__);
-		loghdr->line_allocated = true;
-		memcpy(loghdr->line, dl->line, prefixlen);
-		sprintf(&loghdr->line[prefixlen], "Revision %s  %s  %s", revstr,
-			revdate, ver->author);
+		hdr = sprintf_alloc("Revision %s  %s  %s",
+			rcs_number_string_sb(&ver->number),
+			time2string(ver->date), ver->author);
+		loghdr->len = prefix_len + strlen(hdr) + postfix_len;
+		loghdr->line = pos = xmalloc(loghdr->len + 1, __func__);
+		memcpy(pos, dl->line, prefix_len);
+		pos += prefix_len;
+		strcpy(pos, hdr);
+		pos += strlen(hdr);
+		memcpy(pos, &dl->line[postfix_start], postfix_len);
+		pos += postfix_len;
+		*pos++ = '\0';
+		free(hdr);
 
 		/*
 		 * Add lines for the check-in comment.  The prefix must be added
@@ -234,14 +236,19 @@ rcs_data_expand_log_keyword(const struct rcs_file *file,
 			/* Break the log (check-in comment) text into lines */
 			loglines = string_to_lines(patch->log);
 
-			/* Prepend the prefix onto each log line */
+			/* Add the prefix/postfix onto each log line */
 			for (ll = loglines; ll; ll = ll->next) {
 				/* lnbuf = prefix + ll->line */
-				lnbuf = xmalloc(prefixlen + ll->len + 1,
-					__func__);
-				memcpy(lnbuf, dl->line, prefixlen);
-				memcpy(&lnbuf[prefixlen], ll->line, ll->len);
-				lnbuf[prefixlen + ll->len] = '\0';
+				lnbuf = pos = xmalloc(prefix_len + ll->len +
+					postfix_len + 1, __func__);
+				memcpy(pos, dl->line, prefix_len);
+				pos += prefix_len;
+				memcpy(pos, ll->line, ll->len);
+				pos += ll->len;
+				memcpy(pos, &dl->line[postfix_start],
+					postfix_len);
+				pos += postfix_len;
+				*pos++ = '\0';
 
 				/*
 				 * Replace original log line with the version
@@ -251,7 +258,7 @@ rcs_data_expand_log_keyword(const struct rcs_file *file,
 					free(ll->line);
 				ll->line = lnbuf;
 				ll->line_allocated = true;
-				ll->len = prefixlen + ll->len;
+				ll->len = pos - lnbuf - 1;
 				ll->no_newline = false;
 			}
 
