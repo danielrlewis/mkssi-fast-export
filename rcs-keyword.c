@@ -9,7 +9,7 @@ typedef char *(keyword_expander_t)(const struct rcs_file *file,
 	const struct rcs_version *ver);
 
 /* get the name element of a path */
-const char *
+static const char *
 path_to_name(const char *path)
 {
 	const char *name;
@@ -49,7 +49,14 @@ static char *
 expanded_header_str(const struct rcs_file *file,
 	const struct rcs_version *ver)
 {
-	return sprintf_alloc("$Id: %s %s %s %s %s $", file->name,
+	const char *path;
+
+	if (source_dir_path)
+		path = source_dir_path;
+	else
+		path = mkssi_dir_path;
+
+	return sprintf_alloc("$Header: %s/%s %s %s %s %s $", path, file->name,
 		rcs_number_string_sb(&ver->number), time2string(ver->date),
 		ver->author, ver->state);
 }
