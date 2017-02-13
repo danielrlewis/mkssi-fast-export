@@ -26,6 +26,7 @@ find_adds(const struct rcs_file_revision *old,
 		if (!o) {
 			change = xcalloc(1, sizeof *change, __func__);
 			change->file = n->file;
+			change->canonical_name = n->canonical_name;
 			change->newrev = n->rev;
 			*prev_next = change;
 			prev_next = &change->next;
@@ -55,6 +56,7 @@ find_updates(const struct rcs_file_revision *old,
 			 && !rcs_number_equal(&o->rev, &n->rev)) {
 				change = xcalloc(1, sizeof *change, __func__);
 				change->file = n->file;
+				change->canonical_name = n->canonical_name;
 				change->oldrev = o->rev;
 				change->newrev = n->rev;
 				*prev_next = change;
@@ -81,11 +83,90 @@ find_deletes(const struct rcs_file_revision *old,
 		if (!n) {
 			change = xcalloc(1, sizeof *change, __func__);
 			change->file = o->file;
+			change->canonical_name = o->canonical_name;
 			change->oldrev = o->rev;
 			*prev_next = change;
 			prev_next = &change->next;
 		}
 	}
+	return head;
+}
+
+/* find directories that were implicitly renamed by added/deleted files */
+static struct file_change *
+find_implicit_dir_renames(const struct rcs_file_revision *old,
+	const struct rcs_file_revision *new)
+{
+	const struct rcs_file_revision *o, *n;
+	struct file_change *rename, *head;
+	struct dir_path *old_dirs, *new_dirs, *path_dirs, *od, *nd;
+	const char *oname, *nname;
+	char *path;
+
+	/* get a list of directories in the previous project revision */
+	old_dirs = NULL;
+	for (o = old; o; o = o->next) {
+		path_dirs = dir_list_from_path(o->canonical_name);
+		path_dirs = dir_list_remove_duplicates(path_dirs, old_dirs);
+		old_dirs = dir_list_append(old_dirs, path_dirs);
+	}
+
+	/* get a list of directories in the current project revision */
+	new_dirs = NULL;
+	for (n = new; n; n = n->next) {
+		path_dirs = dir_list_from_path(n->canonical_name);
+		path_dirs = dir_list_remove_duplicates(path_dirs, new_dirs);
+		new_dirs = dir_list_append(new_dirs, path_dirs);
+	}
+
+	/*
+	 * Search for directories which have been implicitly renamed (same name
+	 * but different case) by added/deleted files.
+	 */
+	head = NULL;
+	for (od = old_dirs; od; od = od->next)
+		for (nd = new_dirs; nd; nd = nd->next)
+			if (od->len == nd->len && !strncasecmp(od->path,
+			 nd->path, nd->len) && strncmp(od->path, nd->path,
+			 nd->len)) {
+			 	/*
+			 	 * If the difference does not occur in the final
+			 	 * directory, ignore it, it will be handled by a
+			 	 * different iteration through the loop.
+			 	 */
+				oname = od->path + od->len - 1;
+				while (oname > od->path && *oname != '/')
+					--oname;
+				nname = nd->path + (oname - od->path);
+				if (!strncmp(oname, nname, nd->len - (nname -
+				 nd->path)))
+					continue;
+
+				rename = xcalloc(1, sizeof *rename, __func__);
+
+				/*
+				 * TODO: These memory allocated for these paths
+				 * is leaked; it is needed only briefly but is
+				 * never freed.  This code path is executed very
+				 * rarely in a typical MKSSI project, so
+				 * overlooking the memory leak for now.
+				 */
+				path = xmalloc(od->len + 1, __func__);
+				memcpy(path, od->path, od->len);
+				path[od->len] = '\0';
+				rename->old_canonical_name = path;
+				path = xmalloc(nd->len + 1, __func__);
+				memcpy(path, nd->path, nd->len);
+				path[nd->len] = '\0';
+				rename->canonical_name = path;
+
+				rename->next = head;
+				head = rename;
+			}
+
+	dir_list_free(old_dirs);
+	dir_list_free(new_dirs);
+
 	return head;
 }
 
@@ -126,6 +207,7 @@ adjust_adds(struct file_change *adds, time_t old_date)
 			 */
 			update = xcalloc(1, sizeof *update, __func__);
 			update->file = c->file;
+			update->canonical_name = c->canonical_name;
 			update->oldrev = prevrev;
 			update->newrev = c->newrev;
 			update->next = new_updates;
@@ -199,6 +281,7 @@ adjust_updates(struct file_change *updates)
 
 			update = xcalloc(1, sizeof *update, __func__);
 			update->file = c->file;
+			update->canonical_name = c->canonical_name;
 			update->oldrev = prevrev;
 			update->newrev = c->newrev;
 			update->next = new_updates;
@@ -246,6 +329,7 @@ adjust_deletes(struct file_change *deletes, time_t new_date)
 			 */
 			update = xcalloc(1, sizeof *update, __func__);
 			update->file = c->file;
+			update->canonical_name = c->canonical_name;
 			update->oldrev = c->oldrev;
 			update->newrev = nextrev;
 			update->next = new_updates;
@@ -286,6 +370,13 @@ remove_nonexistent_file_revisions(struct file_change *changes)
 	return changes;
 }
 
+/* compare two changes by name for sorting purposes */
+static int
+compare_by_name(const struct file_change *a, const struct file_change *b)
+{
+	return strcasecmp(a->canonical_name, b->canonical_name);
+}
+
 /* compare two adds for sorting purposes */
 static int
 compare_adds(const struct file_change *a, const struct file_change *b)
@@ -306,7 +397,7 @@ compare_adds(const struct file_change *a, const struct file_change *b)
 		return 1;
 
 	/* If the timestamp is the same for some reason, sort by name. */
-	return strcasecmp(a->file->name, b->file->name);
+	return compare_by_name(a, b);
 }
 
 /* compare two updates for sorting purposes */
@@ -322,14 +413,6 @@ compare_updates(const struct file_change *a, const struct file_change *b)
 
 	/* Otherwise the sort is the same as added files */
 	return compare_adds(a, b);
-}
-
-/* compare two deletes for sorting purposes */
-static int
-compare_deletes(const struct file_change *a, const struct file_change *b)
-{
-	/* Deletes have no timestamp, so sort by name. */
-	return strcasecmp(a->file->name, b->file->name);
 }
 
 /* sort a list of changes using the given comparison function */
@@ -379,6 +462,7 @@ changeset_build(const struct rcs_file_revision *old, time_t old_date,
 {
 	struct file_change *extra_updates;
 
+	changes->renames = find_implicit_dir_renames(old, new);
 	changes->adds = find_adds(old, new);
 	changes->updates = find_updates(old, new);
 	changes->deletes = find_deletes(old, new);
@@ -395,9 +479,10 @@ changeset_build(const struct rcs_file_revision *old, time_t old_date,
 	changes->adds = remove_nonexistent_file_revisions(changes->adds);
 	changes->updates = remove_nonexistent_file_revisions(changes->updates);
 
+	changes->renames = sort_changes(changes->renames, compare_by_name);
 	changes->adds = sort_changes(changes->adds, compare_adds);
 	changes->updates = sort_changes(changes->updates, compare_updates);
-	changes->deletes = sort_changes(changes->deletes, compare_deletes);
+	changes->deletes = sort_changes(changes->deletes, compare_by_name);
 }
 
 /* free a list of changes */
@@ -416,9 +501,11 @@ change_list_free(struct file_change *list)
 void
 changeset_free(struct file_change_lists *changes)
 {
+	change_list_free(changes->renames);
 	change_list_free(changes->adds);
 	change_list_free(changes->updates);
 	change_list_free(changes->deletes);
+	changes->renames = NULL;
 	changes->adds = NULL;
 	changes->updates = NULL;
 	changes->deletes = NULL;

@@ -228,6 +228,17 @@ export_blobs(void)
 	}
 }
 
+/* export file renames */
+static void
+export_filerenames(const struct file_change *renames)
+{
+	const struct file_change *r;
+
+	for (r = renames; r; r = r->next)
+		printf("R \"%s\" \"%s\"\n", r->old_canonical_name,
+			r->canonical_name);
+}
+
 /* export file modifications (added or updated files) */
 static void
 export_filemodifies(const struct file_change *mods)
@@ -238,7 +249,7 @@ export_filemodifies(const struct file_change *mods)
 	for (m = mods; m; m = m->next) {
 		ver = rcs_file_find_version(m->file, &m->newrev, true);
 		printf("M %o :%lu %s\n", ver->executable ? 0755 : 0644,
-			ver->blob_mark, m->file->name);
+			ver->blob_mark, m->canonical_name);
 	}
 }
 
@@ -249,7 +260,7 @@ export_deletes(const struct file_change *deletes)
 	const struct file_change *d;
 
 	for (d = deletes; d; d = d->next)
-		printf("D %s\n", d->file->name);
+		printf("D %s\n", d->canonical_name);
 }
 
 /* export a commit */
@@ -262,6 +273,7 @@ export_commit(const struct git_commit *commit)
 		TIMEZONE);
 	printf("data %zu\n", strlen(commit->commit_msg));
 	printf("%s\n", commit->commit_msg);
+	export_filerenames(commit->changes.renames);
 	export_filemodifies(commit->changes.adds);
 	export_filemodifies(commit->changes.updates);
 	export_deletes(commit->changes.deletes);

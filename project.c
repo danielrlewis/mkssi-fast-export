@@ -47,39 +47,51 @@ rcs_file_find(const char *name)
 	const struct rcs_file *f;
 
 	bucket = hash_string(name) % ARRAY_SIZE(file_hash_table);
-	for (f = file_hash_table[bucket]; f; f = f->hash_next) {
-		if (strcasecmp(f->name, name))
-			continue;
-
-		/*
-		 * Kluge: For historical reasons, some of the old source files
-		 * and directories with 8.3 file names are stored with UPPERCASE
-		 * names even though they are lower- or mixed-case in the MKSSI
-		 * file revision list, and thus get converted to lower- or
-		 * mixed-case in MKSSI sandboxes.  We assume here that a case
-		 * mismatch of an uppercase 8.3 name is due to this problem, and
-		 * thus allow the search name to supersede the file name.  This
-		 * avoids exporting the file with letters of the wrong case,
-		 * causing build failures.  This really should happen elsewhere.
-		 */
-		if (strcmp(f->name, name)) {
-			fprintf(stderr, "warning: name case fixup: "
-				"\"%s\" -> \"%s\"\n", f->name, name);
-			strcpy(f->name, name);
-		}
-		return f;
-	}
+	for (f = file_hash_table[bucket]; f; f = f->hash_next)
+		if (!strcasecmp(f->name, name))
+			return f;
 
 	/* Try the corrupt files (hopefully a short list!) */
 	for (f = corrupt_files; f; f = f->next)
 		if (!strcasecmp(f->name, name))
-			/*
-			 * Note the UPPERCASE-fixing kluge is not needed here,
-			 * since corrupt files are not exported.
-			 */
 			return f;
 
 	return NULL;
+}
+
+/* fix inconsistent directory name capitalization */
+static void
+fix_directory_capitalization(const struct rcs_file_revision *frevs)
+{
+	const struct rcs_file_revision *f, *ff;
+	struct dir_path *adjusted_dirs, *dirs, *d;
+
+	adjusted_dirs = NULL;
+
+	/*
+	 * Current assumption is that the canonical capitalization of a
+	 * directory is the capitalization used in its first appearance in the
+	 * list.  Most likely, MKSSI creates the files and directories in-order,
+	 * using the capitalization that it encounters first, and if subsequent
+	 * entries in that directory are listed with a different directory name
+	 * capitalization, it has no effect since Windows file systems are case
+	 * insensitive.
+	 */
+	for (f = frevs; f; f = f->next) {
+		dirs = dir_list_from_path(f->canonical_name);
+		dirs = dir_list_remove_duplicates(dirs, adjusted_dirs);
+
+		for (ff = f->next; ff; ff = ff->next)
+			for (d = dirs; d; d = d->next)
+				if (!strncasecmp(ff->canonical_name, d->path,
+				 d->len))
+					memcpy(ff->canonical_name, d->path,
+						d->len);
+
+		adjusted_dirs = dir_list_append(adjusted_dirs, dirs);
+	}
+
+	dir_list_free(adjusted_dirs);
 }
 
 /* load file revision list from a revision of project.pj */
@@ -94,7 +106,6 @@ project_revision_read_files(const char *pjdata)
 	char *fp, *rp;
 	bool in_quote;
 
-	head = NULL;
 	prev = &head;
 
 	flist = strstr(pjdata, flist_start_marker);
@@ -223,11 +234,15 @@ project_revision_read_files(const char *pjdata)
 		if (frev->file->corrupt)
 			free(frev);
 		else {
+			frev->canonical_name = xstrdup(file_path, __func__);
 			frev->rev = lex_number(rcsnumstr);
 			*prev = frev;
 			prev = &frev->next;
 		}
 	}
+	*prev = NULL;
+
+	fix_directory_capitalization(head);
 
 	return head;
 }

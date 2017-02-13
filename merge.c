@@ -171,6 +171,55 @@ commit_msg_deletes(const struct file_change *deletes)
 	return msg;
 }
 
+/* merge all renames into a single rename commit */
+static struct git_commit *
+merge_renames(const char *branch, struct file_change *renames, time_t cp_date)
+{
+	struct git_commit *c;
+	static const char msg[] =
+"Implicit MKSSI directory rename\n\
+\n\
+This commit has been automatically generated to handle an MKSSI edge-case\n\
+involving the capitalization of directory names.\n\
+\n\
+MKSSI is case-insensitive and may list a directory name with different\n\
+capitalization variants, for example \"FooBar/a.txt\" and \"foobar/b.txt\".  On\n\
+the Windows operating system, which has file systems that are case-insensitive\n\
+but case-preserving, the capitalization variant which is listed first is the\n\
+one that will show up when checking out the sandbox.\n\
+\n\
+The edge-case arises when the first-listed capitalization variant changes over\n\
+time, due to added or deleted files.  Thus if the file list is as follows:\n\
+\n\
+	FooBar/a.txt\n\
+	foobar/b.txt\n\
+\n\
+Then the MKSSI directory will be \"FooBar\".  But if a new file is added:\n\
+\n\
+	foobar/_new.txt\n\
+	FooBar/a.txt\n\
+	foobar/b.txt\n\
+\n\
+Then the MKSSI directory will be \"foobar\".  Git is case-sensitive, so to\n\
+emulate the MKSSI behavior, the directory must be renamed in such cases.\n\
+";
+
+	if (!renames)
+		return NULL;
+
+	/*
+	 * MKSSI does not have rename operations; these renames are for implicit
+	 * directory name capitalization changes.
+	 */
+	c = xcalloc(1, sizeof *c, __func__);
+	c->branch = branch;
+	c->committer = &unknown_author;
+	c->date = cp_date;
+	c->commit_msg = xstrdup(msg, __func__);
+	c->changes.renames = renames;
+	return c;
+}
+
 /* merge adds into commits */
 static struct git_commit *
 merge_adds(const char *branch, struct file_change *add_list, time_t cp_date)
@@ -390,7 +439,11 @@ struct git_commit *
 merge_changeset_into_commits(const char *branch,
 	struct file_change_lists *changes, time_t cp_date)
 {
-	struct git_commit *add_commits, *update_commits, *delete_commit;
+	struct git_commit *rename_commit, *add_commits, *update_commits,
+		*delete_commit, *list;
+
+	rename_commit = merge_renames(branch, changes->renames, cp_date);
+	changes->renames = NULL;
 
 	add_commits = merge_adds(branch, changes->adds, cp_date);
 	changes->adds = NULL;
@@ -401,9 +454,13 @@ merge_changeset_into_commits(const char *branch,
 	delete_commit = merge_deletes(branch, changes->deletes, cp_date);
 	changes->deletes = NULL;
 
-	commit_list_append(&add_commits, update_commits);
-	commit_list_append(&add_commits, delete_commit);
-	return add_commits;
+	/* The ordering of these commits is important. */
+	list = NULL;
+	commit_list_append(&list, rename_commit);
+	commit_list_append(&list, add_commits);
+	commit_list_append(&list, update_commits);
+	commit_list_append(&list, delete_commit);
+	return list;
 }
 
 /* free a list of commits */

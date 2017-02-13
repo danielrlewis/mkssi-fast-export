@@ -8,26 +8,6 @@
 typedef char *(keyword_expander_t)(const struct rcs_file *file,
 	const struct rcs_version *ver);
 
-/* get the name element of a path */
-static const char *
-path_to_name(const char *path)
-{
-	const char *name;
-
-	/* For example: "a/b/c" yields "c", "a" yields "a" */
-
-	if (!*path)
-		return path;
-
-	name = path + strlen(path) - 1;
-	while (name > path && *name != '/')
-		--name;
-	if (*name == '/')
-		++name;
-
-	return name;
-}
-
 /* generate an expanded $Author$ keyword string */
 static char *
 expanded_author_str(const struct rcs_file *file,

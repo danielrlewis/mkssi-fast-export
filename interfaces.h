@@ -93,18 +93,21 @@ struct rcs_file_revision {
 	struct rcs_file_revision *next;
 	const struct rcs_file *file;
 	struct rcs_number rev;
+	char *canonical_name; /* name with capitalization fixes */
 };
 
 /* list of changes to files */
 struct file_change {
 	struct file_change *next;
 	const struct rcs_file *file;
+	const char *canonical_name; /* name with capitalization fixes */
+	const char *old_canonical_name; /* used only for renames */
 	struct rcs_number oldrev, newrev;
 };
 
 /* set of all changes between project revisions */
 struct file_change_lists {
-	struct file_change *adds, *updates, *deletes;
+	struct file_change *renames, *adds, *updates, *deletes;
 };
 
 /* represent a Git author */
@@ -156,6 +159,13 @@ struct rcs_line {
 
 	/* The very last line of a buffer might not include a newline. */
 	bool no_newline;
+};
+
+/* represent list of directories */
+struct dir_path {
+	struct dir_path *next;
+	const char *path; /* not NUL terminated; use len */
+	size_t len;
 };
 
 /* main.c */
@@ -254,6 +264,7 @@ char *sprintf_alloc_append(char *buf, const char *fmt, ...);
 const char *time2string(time_t date);
 uint32_t hash_string(const char *s);
 bool is_hex_digit(char c);
+const char *path_to_name(const char *path);
 void *xmalloc(size_t size, const char *legend);
 void *xcalloc(size_t nmemb, size_t size, const char *legend);
 void *xrealloc(void *ptr, size_t size, const char *legend);
@@ -263,6 +274,12 @@ struct rcs_version *rcs_file_find_version(const struct rcs_file *file,
 	const struct rcs_number *revnum, bool fatalerr);
 struct rcs_patch *rcs_file_find_patch(const struct rcs_file *file,
 	const struct rcs_number *revnum, bool fatalerr);
+struct dir_path *dir_list_from_path(const char *path);
+struct dir_path *dir_list_remove_duplicates(struct dir_path *new_list,
+	const struct dir_path *old_list);
+struct dir_path *dir_list_append(struct dir_path *old_list,
+	struct dir_path *new_list);
+void dir_list_free(struct dir_path *list);
 
 /* like sprintf(), but malloc() the output buffer (must be freed by caller) */
 #define sprintf_alloc(fmt, ...) sprintf_alloc_append(NULL, fmt, ##__VA_ARGS__)

@@ -105,6 +105,26 @@ is_hex_digit(char c)
 	return false;
 }
 
+/* get the name element of a path */
+const char *
+path_to_name(const char *path)
+{
+	const char *name;
+
+	/* For example: "a/b/c" yields "c", "a" yields "a" */
+
+	if (!*path)
+		return path;
+
+	name = path + strlen(path) - 1;
+	while (name > path && *name != '/')
+		--name;
+	if (*name == '/')
+		++name;
+
+	return name;
+}
+
 /* like malloc(), but abort on failure */
 void *
 xmalloc(size_t size, const char *legend)
@@ -240,4 +260,77 @@ rcs_file_find_patch(const struct rcs_file *file,
 			file->master_name,
 			rcs_number_string_sb(revnum));
 	return NULL;
+}
+
+/* return list of directories in a path */
+struct dir_path *
+dir_list_from_path(const char *path)
+{
+	struct dir_path *dir, *head, **prev_next;
+	const char *pos;
+
+	/*
+	 * For example, if path is "a/b/c/foo.txt", the returned list will be
+	 * "a/", "a/b/", and "a/b/c/".
+	 */
+	prev_next = &head;
+	for (pos = path; *pos; ++pos) {
+		if (*pos != '/')
+			continue;
+		dir = xmalloc(sizeof *dir, __func__);
+		dir->path = path;
+		dir->len = pos - path;
+		*prev_next = dir;
+		prev_next = &dir->next;
+	}
+	*prev_next = NULL;
+	return head;
+}
+
+/* remove from the new list anything which is listed in the old list */
+struct dir_path *
+dir_list_remove_duplicates(struct dir_path *new_list,
+	const struct dir_path *old_list)
+{
+	const struct dir_path *o;
+	struct dir_path *n, **prev_next;
+
+	prev_next = &new_list;
+	for (n = new_list; n; n = *prev_next) {
+		for (o = old_list; o; o = o->next)
+			if (n->len == o->len
+			 && !strncasecmp(n->path, o->path, n->len))
+				break;
+		if (o) {
+			*prev_next = n->next;
+			free(n);
+		} else
+			prev_next = &n->next;
+	}
+	return new_list;
+}
+
+/* append a new list of directories to an old list */
+struct dir_path *
+dir_list_append(struct dir_path *old_list, struct dir_path *new_list)
+{
+	struct dir_path *d, **prev_next;
+
+	prev_next = &old_list;
+	for (d = old_list; d; d = d->next)
+		prev_next = &d->next;
+	*prev_next = new_list;
+	return old_list;
+}
+
+/* free a list of directories */
+void
+dir_list_free(struct dir_path *list)
+{
+	struct dir_path *d, *dnext;
+
+	for (d = list; d; d = dnext) {
+		dnext = d->next;
+		free(d);
+	}
 }
