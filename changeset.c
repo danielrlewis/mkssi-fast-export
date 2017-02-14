@@ -377,18 +377,12 @@ compare_by_name(const struct file_change *a, const struct file_change *b)
 	return strcasecmp(a->canonical_name, b->canonical_name);
 }
 
-/* compare two adds for sorting purposes */
+/* compare two changes by date for sorting purposes */
 static int
-compare_adds(const struct file_change *a, const struct file_change *b)
+compare_by_date(const struct file_change *a, const struct file_change *b)
 {
 	struct rcs_version *aver, *bver;
 
-	/*
-	 * Ideally we would sort the files by when they were added to the
-	 * project.  We cannot do so, since the MKSSI timestamp is the mtime of
-	 * the file when it was added, rather than the actual time it was added.
-	 * Sort by timestamp anyway, as an approximation of the ideal sort.
-	 */
 	aver = rcs_file_find_version(a->file, &a->newrev, true);
 	bver = rcs_file_find_version(b->file, &b->newrev, true);
 	if (aver->date < bver->date)
@@ -400,9 +394,9 @@ compare_adds(const struct file_change *a, const struct file_change *b)
 	return compare_by_name(a, b);
 }
 
-/* compare two updates for sorting purposes */
+/* compare two changes by file revision */
 static int
-compare_updates(const struct file_change *a, const struct file_change *b)
+compare_by_rev(const struct file_change *a, const struct file_change *b)
 {
 	/*
 	 * When dealing with updated revisions to a file, the earlier revision
@@ -411,8 +405,7 @@ compare_updates(const struct file_change *a, const struct file_change *b)
 	if (a->file == b->file)
 		return rcs_number_compare(&a->newrev, &b->newrev);
 
-	/* Otherwise the sort is the same as added files */
-	return compare_adds(a, b);
+	return 0;
 }
 
 /* sort a list of changes using the given comparison function */
@@ -480,8 +473,9 @@ changeset_build(const struct rcs_file_revision *old, time_t old_date,
 	changes->updates = remove_nonexistent_file_revisions(changes->updates);
 
 	changes->renames = sort_changes(changes->renames, compare_by_name);
-	changes->adds = sort_changes(changes->adds, compare_adds);
-	changes->updates = sort_changes(changes->updates, compare_updates);
+	changes->adds = sort_changes(changes->adds, compare_by_date);
+	changes->updates = sort_changes(changes->updates, compare_by_date);
+	changes->updates = sort_changes(changes->updates, compare_by_rev);
 	changes->deletes = sort_changes(changes->deletes, compare_by_name);
 }
 
