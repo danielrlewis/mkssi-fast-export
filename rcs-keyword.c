@@ -4,6 +4,69 @@
 #include <string.h>
 #include "interfaces.h"
 
+/* unescape double-@@ characters to single-@ */
+static void
+rcs_data_unescape_ats(struct rcs_line *dlines)
+{
+	struct rcs_line *dl;
+	char *lp, *at;
+
+	for (dl = dlines; dl; dl = dl->next) {
+		/*
+		 * If this line contains an "@@", make sure its line buffer is
+		 * writable.
+		 */
+		if (line_findstr(dl->line, "@@"))
+			line_allocate(dl);
+
+		/*
+		 * Every time we see an "@@", shift the line contents to the
+		 * left to squash the 2nd '@'.
+		 */
+		lp = dl->line;
+		while ((at = line_findstr(lp, "@@"))) {
+			memmove(at + 1, at + 2, line_length(at + 2) + 1);
+			lp = at + 1;
+			dl->len--;
+		}
+	}
+}
+
+/* re-escape single-@ characters to double-@@ */
+static void
+rcs_data_reescape_ats(struct rcs_line *dlines)
+{
+	struct rcs_line *dl;
+	unsigned int at_count;
+	const char *lp;
+	char *lnbuf, *pos;
+
+	for (dl = dlines; dl; dl = dl->next) {
+		at_count = 0;
+		for (lp = dl->line; lp < &dl->line[dl->len]; ++lp)
+			if (*lp == '@')
+				++at_count;
+
+		if (!at_count)
+			continue;
+
+		lnbuf = pos = xmalloc(dl->len + at_count + 1, __func__);
+		for (lp = dl->line; lp < &dl->line[dl->len]; ++lp) {
+			*pos++ = *lp;
+			if (*lp == '@')
+				*pos++ = '@';
+		}
+		*pos++ = '\0';
+
+		if (dl->line_allocated)
+			free(dl->line);
+
+		dl->line = lnbuf;
+		dl->len += at_count;
+		dl->line_allocated = true;
+	}
+}
+
 /* signature for a keyword expander function */
 typedef char *(keyword_expander_t)(const struct rcs_file *file,
 	const struct rcs_version *ver);
@@ -251,6 +314,17 @@ rcs_data_expand_log_keyword(const struct rcs_file *file,
 				ll->no_newline = false;
 			}
 
+			/*
+			 * Duplicate an MKSSI bug: any '@' character in a
+			 * revision history comment will show up as "@@" when
+			 * the log keyword is expanded, due to a failure to
+			 * unescape the "@@" character sequence in this context.
+			 * (Remarkably, in other contexts, such as the member
+			 * archive GUI, the log message is correctly displayed
+			 * with just a single '@'.)
+			 */
+			rcs_data_reescape_ats(loglines);
+
 			/* Make ll point at the last of the log lines */
 			for (ll = loglines; ll->next; ll = ll->next)
 				;
@@ -268,34 +342,6 @@ rcs_data_expand_log_keyword(const struct rcs_file *file,
 			loghdr->next = dl->next;
 			dl->next = loghdr;
 			dl = loghdr;
-		}
-	}
-}
-
-/* unescape double-@@ characters to single-@ */
-static void
-rcs_data_unescape_ats(struct rcs_line *dlines)
-{
-	struct rcs_line *dl;
-	char *lp, *at;
-
-	for (dl = dlines; dl; dl = dl->next) {
-		/*
-		 * If this line contains an "@@", make sure its line buffer is
-		 * writable.
-		 */
-		if (line_findstr(dl->line, "@@"))
-			line_allocate(dl);
-
-		/*
-		 * Every time we see an "@@", shift the line contents to the
-		 * left to squash the 2nd '@'.
-		 */
-		lp = dl->line;
-		while ((at = line_findstr(lp, "@@"))) {
-			memmove(at + 1, at + 2, line_length(at + 2) + 1);
-			lp = at + 1;
-			dl->len--;
 		}
 	}
 }
