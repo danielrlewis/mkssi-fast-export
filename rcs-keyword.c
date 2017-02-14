@@ -130,12 +130,14 @@ rcs_data_expand_generic_keyword(const struct rcs_file *file,
 			continue;
 
 		/*
-		 * Before the closing '$', there can be other characters, such
-		 * as a previously expanded version of the keyword.
+		 * Keyword must be "$Keyword$" or "$Keyword: blah $", where
+		 * "blah" is most likely a previous expansion of the keyword.
 		 */
 		lp = kw + strlen(keyword);
-		for (; *lp && *lp != '\n' && *lp != '$'; ++lp)
-			;
+		if (*lp == ':') {
+			for (++lp; *lp && *lp != '\n' && *lp != '$'; ++lp)
+				;
+		}
 
 		/* If no closing '$' was found, then not a keyword */
 		if (*lp != '$')
@@ -165,12 +167,14 @@ rcs_data_expand_log_keyword(const struct rcs_file *file,
 			continue;
 
 		/*
-		 * Before the closing '$', there can be other characters, such
-		 * as the file name or spaces.
+		 * Keyword must be "$Log$" or "$Log: blah $", where "blah" is
+		 * most likely a previous expansion of the keyword.
 		 */
 		lp = kw + strlen("$Log");
-		for (; *lp && *lp != '\n' && *lp != '$'; ++lp)
-			;
+		if (*lp == ':') {
+			for (++lp; *lp && *lp != '\n' && *lp != '$'; ++lp)
+				;
+		}
 
 		/* If no closing '$' was found, then not a log keyword */
 		if (*lp != '$')
