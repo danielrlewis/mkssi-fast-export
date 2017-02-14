@@ -48,10 +48,24 @@ import_rcs_file(const char *relative_path)
 	int err;
 
 	file = xcalloc(1, sizeof *file, __func__);
-	file->master_name = xmalloc(strlen(mkssi_dir_path) + 1 +
-		strlen(relative_path) + 1, __func__);
-	sprintf(file->master_name, "%s/%s", mkssi_dir_path, relative_path);
+retry:
+	file->master_name = sprintf_alloc("%s/%s", mkssi_dir_path,
+		relative_path);
 	file->name = xstrdup(relative_path, __func__);
+
+	if (!(in = fopen(file->master_name, "r"))) {
+		/*
+		 * Special case for project.pj: sometimes it is PROJECT.PJ for
+		 * old projects that did not use long file names.
+		 */
+		if (!strcmp(relative_path, "project.pj")) {
+			relative_path = "PROJECT.PJ";
+			free(file->master_name);
+			free(file->name);
+			goto retry;
+		}
+		fatal_system_error("cannot open \"%s\"", file->master_name);
+	}
 
 	/* Lexer/parser do not like empty files */
 	if (stat(file->master_name, &buf))
@@ -60,11 +74,8 @@ import_rcs_file(const char *relative_path)
 		file->corrupt = true;
 		fprintf(stderr, "warning: RCS file \"%s\" is empty\n",
 				file->master_name);
-		return file;
+		goto out;
 	}
-
-	if (!(in = fopen(file->master_name, "r")))
-		fatal_system_error("cannot open \"%s\"", file->master_name);
 
 	/*
 	 * Lexically analyze and parse the RCS master file, putting its data
@@ -87,8 +98,8 @@ import_rcs_file(const char *relative_path)
 			fatal_error("yyparse aborted with unexpected error");
 	}
 
+out:
 	fclose(in);
-
 	return file;
 }
 

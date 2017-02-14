@@ -55,8 +55,11 @@ mkssi_dir_validate(const char *mkssi_dir)
 		fatal_error("not a directory: \"%s\"", mkssi_dir);
 
 	snprintf(path, sizeof path, "%s/project.pj", mkssi_dir);
-	if (!(pjfile = fopen(path, "r")))
-		fatal_system_error("cannot open \"%s\"", path);
+	if (!(pjfile = fopen(path, "r"))) {
+		snprintf(path, sizeof path, "%s/PROJECT.PJ", mkssi_dir);
+		if (!(pjfile = fopen(path, "r")))
+			fatal_system_error("cannot open \"%s\"", path);
+	}
 
 	/*
 	 * MKSSI projects can be a bit confusing because there are two project

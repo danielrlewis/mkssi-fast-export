@@ -134,10 +134,9 @@ rcs_data_expand_generic_keyword(const struct rcs_file *file,
 		 * "blah" is most likely a previous expansion of the keyword.
 		 */
 		lp = kw + strlen(keyword);
-		if (*lp == ':') {
+		if (*lp == ':')
 			for (++lp; *lp && *lp != '\n' && *lp != '$'; ++lp)
 				;
-		}
 
 		/* If no closing '$' was found, then not a keyword */
 		if (*lp != '$')
@@ -171,10 +170,9 @@ rcs_data_expand_log_keyword(const struct rcs_file *file,
 		 * most likely a previous expansion of the keyword.
 		 */
 		lp = kw + strlen("$Log");
-		if (*lp == ':') {
+		if (*lp == ':')
 			for (++lp; *lp && *lp != '\n' && *lp != '$'; ++lp)
 				;
-		}
 
 		/* If no closing '$' was found, then not a log keyword */
 		if (*lp != '$')
