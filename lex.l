@@ -67,7 +67,7 @@ YY_DECL;
 		yylval->number = lex_number(yytext);
 		return NUMBER;
 	}
-<SYMBOLSS>[-a-zA-Z_0-9+%\*][-a-zA-Z_0-9+/%=.~^\\*?#!\[\]()<>\*]* {
+<SYMBOLSS>[-a-zA-Z_0-9+/%=.~^\\*?#!\[\]()<>\*&]+ {
 		fast_export_sanitize(yyscanner, file);
 		yylval->s = xstrdup(yytext, "lex.l:SYMBOLSS");
 		return TOKEN;
