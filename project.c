@@ -48,8 +48,19 @@ rcs_file_find(const char *name)
 
 	bucket = hash_string(name) % ARRAY_SIZE(file_hash_table);
 	for (f = file_hash_table[bucket]; f; f = f->hash_next)
-		if (!strcasecmp(f->name, name))
+		if (!strcasecmp(f->name, name)) {
+			/*
+			 * Kluge to correct capitalization for keyword
+			 * expansion, which uses this file name rather than the
+			 * canonical file names generated later.  This breaks
+			 * down if the file name capitalization changes over
+			 * time.
+			 */
+			if (strcmp(f->name, name))
+				strcpy(f->name, name);
+
 			return f;
+		}
 
 	/* Try the corrupt files (hopefully a short list!) */
 	for (f = corrupt_files; f; f = f->next)
