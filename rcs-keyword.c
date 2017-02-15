@@ -255,6 +255,15 @@ log_text_to_lines(char *log, const char *template_line, size_t prefix_len,
 	/* Break the log (check-in comment) text into lines */
 	loglines = string_to_lines(log);
 
+	/*
+	 * Duplicate an MKSSI bug: any '@' character in a revision history
+	 * comment will show up as "@@" when the log keyword is expanded, due to
+	 * a failure to unescape the "@@" character sequence in this context.
+	 * (Remarkably, in other contexts, such as the member archive GUI, the
+	 * log message is correctly displayed with just a single '@'.)
+	 */
+	rcs_data_reescape_ats(loglines);
+
 	/* Add the prefix/postfix onto each log line */
 	for (ll = loglines; ll; ll = ll->next) {
 		/* lnbuf = prefix + ll->line */
@@ -279,15 +288,6 @@ log_text_to_lines(char *log, const char *template_line, size_t prefix_len,
 		ll->len = pos - lnbuf - 1;
 		ll->no_newline = false;
 	}
-
-	/*
-	 * Duplicate an MKSSI bug: any '@' character in a revision history
-	 * comment will show up as "@@" when the log keyword is expanded, due to
-	 * a failure to unescape the "@@" character sequence in this context.
-	 * (Remarkably, in other contexts, such as the member archive GUI, the
-	 * log message is correctly displayed with just a single '@'.)
-	 */
-	rcs_data_reescape_ats(loglines);
 
 	return loglines;
 }
