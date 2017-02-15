@@ -114,6 +114,7 @@ project_revision_read_files(const char *pjdata)
 	struct rcs_file_revision *head, **prev, *frev;
 	const char *flist, *line, *lp, *endline;
 	char file_path[1024], errline[1024], rcsnumstr[RCS_MAX_REV_LEN];
+	struct rcs_number revnum;
 	char *fp, *rp;
 	bool in_quote;
 
@@ -201,16 +202,37 @@ project_revision_read_files(const char *pjdata)
 		}
 		*fp++ = '\0';
 
-		if (!strncmp(lp, " a ", 3))
+		if (!strncmp(lp, " a ", 3)) {
 			lp += 3;
-		else if (!strncmp(lp, " f", 2))
+
+			/*
+			 * Copy the revision number into a NUL-terminated buffer
+			 */
+			rp = rcsnumstr;
+			while (*lp == '.' || (*lp >= '0' && *lp <= '9')) {
+				if (rp - rcsnumstr >= sizeof rcsnumstr - 1) {
+					fprintf(stderr,
+						"error on line:\n\t%s\n",
+						errline);
+					fatal_error("revision number too long");
+				}
+				*rp++ = *lp++;
+			}
+			*rp++ = '\0';
+
+			revnum = lex_number(rcsnumstr);
+		} else if (!strncmp(lp, " f", 2))
 			/*
 			 * According the manual, "f" means other, but there is
-			 * no explanation of what that means.  It might be
-			 * related to deleting and re-adding files.  Seems to be
-			 * rare.  Maybe can be ignored?
+			 * no explanation of what that means.  It seems to be
+			 * rare, and related to deleting and re-adding files.
+			 *
+			 * In every observed instance, MKSSI grabs the head
+			 * revision for these files, even though the head
+			 * revision might be much newer than this project
+			 * revision...
 			 */
-			continue;
+			 revnum.c = 0; /* Will grab head revision below */
 		else if (!strncmp(lp, " i", 2) || !strncmp(lp, " s", 2)) {
 			/*
 			 * According to the manual, "i" means included sub-
@@ -224,32 +246,26 @@ project_revision_read_files(const char *pjdata)
 			fatal_error("unrecognized member type\n");
 		}
 
-		/* Copy the revision number into a NUL-terminated buffer */
-		rp = rcsnumstr;
-		while (*lp == '.' || (*lp >= '0' && *lp <= '9')) {
-			if (rp - rcsnumstr >= sizeof rcsnumstr - 1) {
-				fprintf(stderr, "error on line:\n\t%s\n",
-					errline);
-				fatal_error("revision number too long");
-			}
-			*rp++ = *lp++;
-		}
-		*rp++ = '\0';
-
 		frev = xcalloc(1, sizeof *frev, __func__);
 		frev->file = rcs_file_find(file_path);
 		if (!frev->file) {
-			fprintf(stderr, "error on line:\n\t%s\n", errline);
-			fatal_error("no RCS master for file \"%s\"", file_path);
-		}
-		if (frev->file->corrupt)
+			fprintf(stderr, "warning: ignoring file without RCS "
+				" master file:\n");
+			fprintf(stderr, "\t%s\n", errline);
 			free(frev);
-		else {
-			frev->canonical_name = xstrdup(file_path, __func__);
-			frev->rev = lex_number(rcsnumstr);
-			*prev = frev;
-			prev = &frev->next;
+			continue;
 		}
+		if (frev->file->corrupt) {
+			free(frev);
+			continue;
+		}
+		frev->canonical_name = xstrdup(file_path, __func__);
+		if (revnum.c)
+			frev->rev = revnum;
+		else
+			frev->rev = frev->file->head;
+		*prev = frev;
+		prev = &frev->next;
 	}
 	*prev = NULL;
 
