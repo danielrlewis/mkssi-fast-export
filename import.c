@@ -37,6 +37,27 @@ rcs_file_add(struct rcs_file *file)
 	*nextp = file;
 }
 
+/* is a file an encrypted MKSSI RCS archive? */
+static bool
+is_encrypted_archive(FILE *f)
+{
+	static const char encrypt_header[] = "#!encrypt\n";
+	char buf[sizeof encrypt_header - 1];
+	bool encrypted;
+
+	encrypted = false;
+
+	/* Encrypted archives start with the string in encrypt_header */
+	if (fread(buf, 1, sizeof buf, f) == sizeof buf
+	 && !memcmp(buf, encrypt_header, sizeof buf))
+		encrypted = true;
+
+	/* Reset file position to start */
+	fseek(f, 0, SEEK_SET);
+
+	return encrypted;
+}
+
 /* import an RCS master file into memory */
 static struct rcs_file *
 import_rcs_file(const char *relative_path)
@@ -74,6 +95,16 @@ retry:
 		file->corrupt = true;
 		fprintf(stderr, "warning: RCS file \"%s\" is empty\n",
 				file->master_name);
+		goto out;
+	}
+
+	/* No support for MKSSI encrypted archives */
+	if (is_encrypted_archive(in)) {
+		file->corrupt = true; /* Not really, but close enough */
+		fprintf(stderr, "warning: RCS file \"%s\" is encrypted\n",
+			file->master_name);
+		fprintf(stderr,
+			"Encryption not supported, file will be ignored\n");
 		goto out;
 	}
 
