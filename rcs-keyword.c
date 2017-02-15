@@ -212,6 +212,86 @@ rcs_data_expand_generic_keyword(const struct rcs_file *file,
 	}
 }
 
+/* generate header for log text */
+static struct rcs_line *
+log_header(const struct rcs_version *ver, const char *template_line,
+	size_t prefix_len, size_t postfix_start, size_t postfix_len)
+{
+	struct rcs_line *loghdr;
+	char *pos, *hdr;
+
+	/*
+	 * Generate the first line of the log message from the metadata.  An
+	 * example of what this might look like:
+	 *
+	 * 	Revision 1.8  2012/12/11 23:45:55Z  daniel.lewis
+	 */
+	loghdr = xcalloc(1, sizeof *loghdr, __func__);
+	hdr = sprintf_alloc("Revision %s  %s  %s",
+		rcs_number_string_sb(&ver->number),
+		time2string(ver->date), ver->author);
+	loghdr->len = prefix_len + strlen(hdr) + postfix_len;
+	loghdr->line = pos = xmalloc(loghdr->len + 1, __func__);
+	memcpy(pos, template_line, prefix_len);
+	pos += prefix_len;
+	strcpy(pos, hdr);
+	pos += strlen(hdr);
+	memcpy(pos, &template_line[postfix_start], postfix_len);
+	pos += postfix_len;
+	*pos++ = '\0';
+	free(hdr);
+
+	return loghdr;
+}
+
+/* convert log text into a sequence of lines to insert into the source file */
+static struct rcs_line *
+log_text_to_lines(char *log, const char *template_line, size_t prefix_len,
+	size_t postfix_start, size_t postfix_len)
+{
+	struct rcs_line *loglines, *ll;
+	char *lnbuf, *pos;
+
+	/* Break the log (check-in comment) text into lines */
+	loglines = string_to_lines(log);
+
+	/* Add the prefix/postfix onto each log line */
+	for (ll = loglines; ll; ll = ll->next) {
+		/* lnbuf = prefix + ll->line */
+		lnbuf = pos = xmalloc(prefix_len + ll->len + postfix_len + 1,
+			__func__);
+		memcpy(pos, template_line, prefix_len);
+		pos += prefix_len;
+		memcpy(pos, ll->line, ll->len);
+		pos += ll->len;
+		memcpy(pos, &template_line[postfix_start], postfix_len);
+		pos += postfix_len;
+		*pos++ = '\0';
+
+		/*
+		 * Replace original log line with the version containing the
+		 * prefix.
+		 */
+		if (ll->line_allocated)
+			free(ll->line);
+		ll->line = lnbuf;
+		ll->line_allocated = true;
+		ll->len = pos - lnbuf - 1;
+		ll->no_newline = false;
+	}
+
+	/*
+	 * Duplicate an MKSSI bug: any '@' character in a revision history
+	 * comment will show up as "@@" when the log keyword is expanded, due to
+	 * a failure to unescape the "@@" character sequence in this context.
+	 * (Remarkably, in other contexts, such as the member archive GUI, the
+	 * log message is correctly displayed with just a single '@'.)
+	 */
+	rcs_data_reescape_ats(loglines);
+
+	return loglines;
+}
+
 /* expand "$Log$" keyword and insert revision history comment after it */
 static void
 rcs_data_expand_log_keyword(const struct rcs_file *file,
@@ -219,8 +299,11 @@ rcs_data_expand_log_keyword(const struct rcs_file *file,
 	struct rcs_line *dlines)
 {
 	struct rcs_line *dl, *loghdr, *loglines, *ll;
-	char *lp, *kw, *lnbuf, *log, *hdr, *pos;
+	char *lp, *kw, *log;
 	size_t prefix_len, postfix_len, postfix_start;
+	struct rcs_number num;
+	const struct rcs_version *pver;
+	const struct rcs_patch *ppatch;
 
 	for (dl = dlines; dl; dl = dl->next) {
 		/* Look for the $Log$ keyword on this line */
@@ -261,24 +344,9 @@ rcs_data_expand_log_keyword(const struct rcs_file *file,
 
 		/*
 		 * Generate the first line of the log message from the metadata.
-		 * An example of what this might look like:
-		 *
-		 * 	Revision 1.8  2012/12/11 23:45:55Z  daniel.lewis
 		 */
-		loghdr = xcalloc(1, sizeof *loghdr, __func__);
-		hdr = sprintf_alloc("Revision %s  %s  %s",
-			rcs_number_string_sb(&ver->number),
-			time2string(ver->date), ver->author);
-		loghdr->len = prefix_len + strlen(hdr) + postfix_len;
-		loghdr->line = pos = xmalloc(loghdr->len + 1, __func__);
-		memcpy(pos, dl->line, prefix_len);
-		pos += prefix_len;
-		strcpy(pos, hdr);
-		pos += strlen(hdr);
-		memcpy(pos, &dl->line[postfix_start], postfix_len);
-		pos += postfix_len;
-		*pos++ = '\0';
-		free(hdr);
+		loghdr = log_header(ver, dl->line, prefix_len, postfix_start,
+			postfix_len);
 
 		/*
 		 * Add lines for the check-in comment.  The prefix must be added
@@ -286,48 +354,40 @@ rcs_data_expand_log_keyword(const struct rcs_file *file,
 		 */
 		if (*patch->log) {
 			/* Break the log (check-in comment) text into lines */
-			loglines = string_to_lines(patch->log);
-
-			/* Add the prefix/postfix onto each log line */
-			for (ll = loglines; ll; ll = ll->next) {
-				/* lnbuf = prefix + ll->line */
-				lnbuf = pos = xmalloc(prefix_len + ll->len +
-					postfix_len + 1, __func__);
-				memcpy(pos, dl->line, prefix_len);
-				pos += prefix_len;
-				memcpy(pos, ll->line, ll->len);
-				pos += ll->len;
-				memcpy(pos, &dl->line[postfix_start],
-					postfix_len);
-				pos += postfix_len;
-				*pos++ = '\0';
-
-				/*
-				 * Replace original log line with the version
-				 * containing the prefix.
-				 */
-				if (ll->line_allocated)
-					free(ll->line);
-				ll->line = lnbuf;
-				ll->line_allocated = true;
-				ll->len = pos - lnbuf - 1;
-				ll->no_newline = false;
-			}
-
-			/*
-			 * Duplicate an MKSSI bug: any '@' character in a
-			 * revision history comment will show up as "@@" when
-			 * the log keyword is expanded, due to a failure to
-			 * unescape the "@@" character sequence in this context.
-			 * (Remarkably, in other contexts, such as the member
-			 * archive GUI, the log message is correctly displayed
-			 * with just a single '@'.)
-			 */
-			rcs_data_reescape_ats(loglines);
+			loglines = log_text_to_lines(patch->log, dl->line,
+				prefix_len, postfix_start, postfix_len);
 
 			/* Make ll point at the last of the log lines */
 			for (ll = loglines; ll->next; ll = ll->next)
 				;
+
+			/*
+			 * If this is a duplicate revision, the log text of the
+			 * revision from which it was duplicated must be
+			 * included.  If it is a duplicate of a duplicate, keep
+			 * going until a non-duplicate is found.
+			 */
+			num = ver->number;
+			log = patch->log;
+			while (!strcmp(log, "Duplicate revision\n")
+			 && num.c >= 4 && num.n[num.c - 1] == 1) {
+				rcs_number_decrement(&num);
+				pver = rcs_file_find_version(file, &num, false);
+				ppatch = rcs_file_find_patch(file, &num, false);
+				if (!pver || !ppatch)
+					break;
+
+				ll->next = log_header(pver, dl->line,
+					prefix_len, postfix_start, postfix_len);
+				ll = ll->next;
+				ll->next = log_text_to_lines(ppatch->log,
+					dl->line, prefix_len, postfix_start,
+					postfix_len);
+				for (; ll->next; ll = ll->next)
+					;
+
+				log = ppatch->log;
+			}
 
 			/* Link the log message into the list of lines */
 			ll->next = dl->next;
