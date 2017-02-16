@@ -120,8 +120,8 @@ retry:
 	if (err) {
 		if (file->corrupt)
 			/*
-			 * It would be nice if this was a fatal error, but at
-			 * some projects seem to have such problems...
+			 * It would be nice if this was a fatal error, but some
+			 * projects seem to have such problems...
 			 */
 			fprintf(stderr, "warning: RCS file \"%s\" is corrupt\n",
 				file->master_name);
@@ -134,7 +134,7 @@ out:
 	return file;
 }
 
-/* Should a given file be ignored during the import process? */
+/* should a given file be ignored during the import process? */
 static bool
 ignore_file(const char *name)
 {
@@ -233,10 +233,9 @@ import(void)
 	 * If getting the author list, suppress progress messages intended for
 	 * git fast-import.
 	 */
-	if (!author_list) {
+	if (!author_list)
 		export_progress("importing RCS master files from \"%s\"",
 			mkssi_dir_path);
-	}
 
 	/* Import project.pj first, so we fail quickly if something is wrong. */
 	project = import_rcs_file("project.pj");

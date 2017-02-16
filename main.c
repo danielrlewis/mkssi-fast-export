@@ -141,13 +141,12 @@ main(int argc, char *argv[])
 	if (argc != optind + 1)
 		usage(argv[0]);
 
-	if (!author_list) {
+	if (!author_list)
 		/*
 		 * This tells git fast-import that the stream is incomplete if
 		 * we abort prior to sending the "done" command.
 		 */
 		printf("feature done\n");
-	}
 
 	/* Initialize mapping of MKSSI authors to Git identities */
 	if (author_map)
