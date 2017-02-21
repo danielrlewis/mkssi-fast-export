@@ -364,12 +364,11 @@ rcs_data_expand_log_keyword(const struct rcs_file *file,
 			/*
 			 * If this is a duplicate revision, the log text of the
 			 * revision from which it was duplicated must be
-			 * included.  If it is a duplicate of a duplicate, keep
-			 * going until a non-duplicate is found.
+			 * included.  This is done only once, even if the
+			 * revision is a duplicate of a duplicate.
 			 */
 			num = ver->number;
-			log = patch->log;
-			while (!strcmp(log, "Duplicate revision\n")
+			if (!strcmp(patch->log, "Duplicate revision\n")
 			 && num.c >= 4 && num.n[num.c - 1] == 1) {
 				rcs_number_decrement(&num);
 				pver = rcs_file_find_version(file, &num, false);
@@ -385,8 +384,6 @@ rcs_data_expand_log_keyword(const struct rcs_file *file,
 					postfix_len);
 				for (; ll->next; ll = ll->next)
 					;
-
-				log = ppatch->log;
 			}
 
 			/* Link the log message into the list of lines */
