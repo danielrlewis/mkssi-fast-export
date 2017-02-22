@@ -23,10 +23,10 @@ extern YY_DECL;
 %parse-param {struct rcs_file *rcsfile}
 
 %union {
-	time_t date;
 	char *s;
 	struct rcs_text text;
 	struct rcs_number number;
+	struct rcs_timestamp date;
 	struct rcs_symbol *symbol;
 	struct rcs_version *version;
 	struct rcs_version **vlist;

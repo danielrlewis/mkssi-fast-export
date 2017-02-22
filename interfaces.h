@@ -9,7 +9,6 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-
 #define ARRAY_SIZE(a) (sizeof(a)/sizeof((a)[0]))
 #define min(a, b) ((a) < (b) ? (a) : (b))
 
@@ -17,7 +16,6 @@
 #define RCS_MAX_BRANCHWIDTH 10
 #define RCS_MAX_DEPTH (2 * RCS_MAX_BRANCHWIDTH + 2)
 #define RCS_MAX_REV_LEN (RCS_MAX_DEPTH * (RCS_MAX_DIGITS + 1))
-
 
 /* digested form of an RCS revision */
 struct rcs_number {
@@ -42,6 +40,12 @@ struct rcs_branch {
 	struct rcs_number number;
 };
 
+/* RCS revision timestamp */
+struct rcs_timestamp {
+	time_t value; /* Time expressed as seconds since the Unix epoch */
+	const char *string; /* Time expressed as an MKSSI-style string */
+};
+
 /* metadata of a delta within an RCS file */
 struct rcs_version {
 	struct rcs_version *next;
@@ -51,7 +55,7 @@ struct rcs_version {
 
 	/* RCS metadata */
 	struct rcs_number number;
-	time_t date; /* revision timestamp (possibly adjusted) */
+	struct rcs_timestamp date; /* revision timestamp */
 	const char *author, *state;
 	struct rcs_branch *branches;
 	struct rcs_number parent; /* next in ,v file */
@@ -184,7 +188,7 @@ void import(void);
 
 /* lex.l */
 struct rcs_number lex_number(const char *s);
-time_t lex_date(const struct rcs_number *n, void *yyscanner,
+struct rcs_timestamp lex_date(const struct rcs_number *n, void *yyscanner,
 	const struct rcs_file *file);
 
 /* project.c */
@@ -221,8 +225,7 @@ void rcs_binary_file_read_all_revisions(struct rcs_file *file,
 	rcs_revision_binary_data_handler_t *callback);
 
 /* rcs-keyword.c */
-void
-rcs_data_keyword_expansion(const struct rcs_file *file,
+void rcs_data_keyword_expansion(const struct rcs_file *file,
 	const struct rcs_version *ver, const struct rcs_patch *patch,
 	struct rcs_line *dlines);
 
@@ -261,7 +264,6 @@ bool lines_delete(struct rcs_line *lines, unsigned int lineno,
 void fatal_error(char const *fmt, ...);
 void fatal_system_error(char const *fmt, ...);
 char *sprintf_alloc_append(char *buf, const char *fmt, ...);
-const char *time2string(time_t date);
 uint32_t hash_string(const char *s);
 bool is_hex_digit(char c);
 const char *path_to_name(const char *path);

@@ -84,7 +84,7 @@ static char *
 expanded_date_str(const struct rcs_file *file,
 	const struct rcs_version *ver)
 {
-	return sprintf_alloc("$Date: %s $", time2string(ver->date));
+	return sprintf_alloc("$Date: %s $", ver->date.string);
 }
 
 /* generate an expanded $Header$ keyword string */
@@ -100,7 +100,7 @@ expanded_header_str(const struct rcs_file *file,
 		path = mkssi_dir_path;
 
 	return sprintf_alloc("$Header: %s/%s %s %s %s %s $", path, file->name,
-		rcs_number_string_sb(&ver->number), time2string(ver->date),
+		rcs_number_string_sb(&ver->number), ver->date.string,
 		ver->author, ver->state);
 }
 
@@ -110,7 +110,7 @@ expanded_id_str(const struct rcs_file *file,
 	const struct rcs_version *ver)
 {
 	return sprintf_alloc("$Id: %s %s %s %s %s $", path_to_name(file->name),
-		rcs_number_string_sb(&ver->number), time2string(ver->date),
+		rcs_number_string_sb(&ver->number), ver->date.string,
 		ver->author, ver->state);
 }
 
@@ -229,7 +229,7 @@ log_header(const struct rcs_version *ver, const char *template_line,
 	loghdr = xcalloc(1, sizeof *loghdr, __func__);
 	hdr = sprintf_alloc("Revision %s  %s  %s",
 		rcs_number_string_sb(&ver->number),
-		time2string(ver->date), ver->author);
+		ver->date.string, ver->author);
 	loghdr->len = prefix_len + strlen(hdr) + postfix_len;
 	loghdr->line = pos = xmalloc(loghdr->len + 1, __func__);
 	memcpy(pos, template_line, prefix_len);

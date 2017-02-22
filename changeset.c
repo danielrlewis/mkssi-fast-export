@@ -195,7 +195,7 @@ adjust_adds(struct file_change *adds, time_t old_date)
 			prevver = rcs_file_find_version(c->file, &prevrev,
 				false);
 			if (!prevver || prevver->checkpointed
-			 || prevver->date <= old_date)
+			 || prevver->date.value <= old_date)
 				break;
 
 			/*
@@ -317,7 +317,7 @@ adjust_deletes(struct file_change *deletes, time_t new_date)
 			nextver = rcs_file_find_version(c->file, &nextrev,
 				false);
 			if (!nextver || nextver->checkpointed
-			 || nextver->date > new_date)
+			 || nextver->date.value > new_date)
 				break;
 
 			/*
@@ -385,9 +385,9 @@ compare_by_date(const struct file_change *a, const struct file_change *b)
 
 	aver = rcs_file_find_version(a->file, &a->newrev, true);
 	bver = rcs_file_find_version(b->file, &b->newrev, true);
-	if (aver->date < bver->date)
+	if (aver->date.value < bver->date.value)
 		return -1;
-	if (aver->date > bver->date)
+	if (aver->date.value > bver->date.value)
 		return 1;
 
 	/* If the timestamp is the same for some reason, sort by name. */

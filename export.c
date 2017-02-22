@@ -295,7 +295,7 @@ export_checkpoint_tag(const char *tag, const char *from_branch,
 	printf("tag %s\n", tag);
 	printf("from refs/heads/%s\n", from_branch);
 	printf("tagger %s <%s> %lu %s\n", tagger->name, tagger->email,
-		(unsigned long)ver->date, TIMEZONE);
+		(unsigned long)ver->date.value, TIMEZONE);
 	printf("data %zu\n", strlen(patch->log));
 	printf("%s\n", patch->log);
 }
@@ -332,11 +332,12 @@ get_commit_list(const char *branch, const struct rcs_number *pjrev_old,
 	 * Build a list of changes between the old and new lists of file
 	 * revisions.
 	 */
-	changeset_build(frevs_old, pjver_old ? pjver_old->date : 0, frevs_new,
-		pjver_new->date, &changes);
+	changeset_build(frevs_old, pjver_old ? pjver_old->date.value : 0,
+		frevs_new, pjver_new->date.value, &changes);
 
 	/* Merge these changes into a list of commits. */
-	return merge_changeset_into_commits(branch, &changes, pjver_new->date);
+	return merge_changeset_into_commits(branch, &changes,
+		pjver_new->date.value);
 }
 
 /* export all changes from a given project revision */

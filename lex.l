@@ -12,7 +12,6 @@ static void parse_text(struct rcs_text *text, yyscan_t scanner,
 	struct rcs_file *file);
 static void fast_export_sanitize(yyscan_t scanner, struct rcs_file *file);
 
-
 #define YY_INPUT(buf, result, max_size) { \
 	int c = getc(yyget_in(yyscanner)); \
 	result = (c == EOF) ? YY_NULL : (buf[0] = c, 1); \
@@ -228,13 +227,13 @@ lex_number(const char *s)
 	return n;
 }
 
-/* convert a date/time fields into Unix time */
-time_t
+/* convert date/time fields into Unix time and time string */
+struct rcs_timestamp
 lex_date(const struct rcs_number *n, yyscan_t yyscanner,
 	const struct rcs_file *file)
 {
+	struct rcs_timestamp ts;
 	struct tm tm;
-	time_t d;
 	int i;
 
 	tm.tm_year = n->n[0];
@@ -247,9 +246,8 @@ lex_date(const struct rcs_number *n, yyscan_t yyscanner,
 	tm.tm_sec = n->n[5];
 	tm.tm_isdst = -1;
 	tm.tm_zone = 0;
-
-	d = mktime(&tm);
-	if (d == 0) {
+	ts.value = mktime(&tm);
+	if (!ts.value) {
 		fprintf(stderr, "%s: (%d) unparsable date: ",
 			file->master_name, yyget_lineno(yyscanner));
 		for (i = 0; i < n->c; i++) {
@@ -259,7 +257,31 @@ lex_date(const struct rcs_number *n, yyscan_t yyscanner,
 		}
 		fprintf(stderr, "\n");
 	}
-	return d;
+
+	/*
+	 * Store the timestamp as a string.  In almost all cases, this could be
+	 * derived from the Unix time value; but there is an edge case involving
+	 * the hour skipped by daylight saving time (DST).  For example, an
+	 * MKSSI file revision might have the following timestamp:
+	 *
+	 * 2009/03/08 02:29:46Z
+	 *
+	 * Now in 2009, DST started on March 8th at 2 a.m.  The above timestamp
+	 * thus falls into the hour which was skipped.  As a result, when the
+	 * timestamp is converted into Unix time by mktime() (see above) and
+	 * converted back with localtime() and strftime(), it ends up an hour
+	 * off:
+	 *
+	 * 2009/03/08 03:29:46Z
+	 *
+	 * To avoid this problem, allocate a timestamp string here using the
+	 * values from the RCS metadata, rather than deriving it later from the
+	 * Unix time.
+	 */
+	ts.string = sprintf_alloc("%04u/%02u/%02u %02u:%02u:%02uZ",
+		n->n[0], n->n[1], n->n[2], n->n[3], n->n[4], n->n[5]);
+
+	return ts;
 }
 
 #define SUFFIX(a, s) \

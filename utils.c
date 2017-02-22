@@ -66,18 +66,6 @@ sprintf_alloc_append(char *buf, const char *fmt, ...)
 	return buf;
 }
 
-/* convert a time value to an MKSSI time string */
-const char *
-time2string(time_t date)
-{
-	static char timestr[23];
-	struct tm *tm;
-
-	tm = localtime(&date);
-	(void)strftime(timestr, sizeof timestr, "%Y/%m/%d %H:%M:%SZ", tm);
-	return timestr;
-}
-
 /* hash a string, case insensitive */
 uint32_t
 hash_string(const char *s)
