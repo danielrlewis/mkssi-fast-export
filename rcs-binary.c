@@ -216,7 +216,7 @@ read_patch_text(const struct rcs_file *file, const struct rcs_patch *patch)
 
 /* unescape double-@@ characters to single-@ */
 static void
-rcs_data_unescape_ats(struct binary_data *data)
+rcs_binary_data_unescape_ats(struct binary_data *data)
 {
 	size_t *atat_positions, atats, max_atats, i, end;
 
@@ -273,7 +273,7 @@ static struct rcs_binary_patch_buffer *new_patch_buf(
 	 * Double-@@ sequences are counted as a single byte for offsets and
 	 * lengths, so it is better to remove them.
 	 */
-	rcs_data_unescape_ats(&pbuf->text);
+	rcs_binary_data_unescape_ats(&pbuf->text);
 
 	return pbuf;
 }

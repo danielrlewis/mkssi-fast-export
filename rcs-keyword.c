@@ -5,7 +5,7 @@
 #include "interfaces.h"
 
 /* unescape double-@@ characters to single-@ */
-static void
+void
 rcs_data_unescape_ats(struct rcs_line *dlines)
 {
 	struct rcs_line *dl;

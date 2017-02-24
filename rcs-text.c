@@ -257,6 +257,25 @@ emit_revision(rcs_revision_data_handler_t *callback,
 	char *data;
 
 	/*
+	 * Rare special case: for text files with member type "other", MKSSI
+	 * seems to grab rev. 1.1 without doing keyword expansion, so we need
+	 * to export a special version without expanding keywords.  Assuming
+	 * that "@@" characters still need to be un-escaped.
+	 *
+	 * Still need to export this rev. 1.1 with keyword expansion afterward,
+	 * because it might also be needed as a normal member type "archive".
+	 */
+	if (file->has_member_type_other && !file->binary && ver->number.c == 2
+	 && ver->number.n[0] == 1 && ver->number.n[1] == 1) {
+	 	data_lines_expanded = lines_copy(data_lines);
+	 	rcs_data_unescape_ats(data_lines_expanded);
+		data = lines_to_string(data_lines_expanded);
+		callback(file, &ver->number, data, true);
+		free(data);
+		lines_free(data_lines_expanded);
+	}
+
+	/*
 	 * Need to do RCS keyword expansion.  The provided data_lines may still
 	 * be needed in their original form to patch to the subsequent revision,
 	 * so make a copy for the expansion.
@@ -266,7 +285,7 @@ emit_revision(rcs_revision_data_handler_t *callback,
 
 	/* Convert the data lines into a string and pass to the callback */
 	data = lines_to_string(data_lines_expanded);
-	callback(file, &ver->number, data);
+	callback(file, &ver->number, data, false);
 	free(data);
 
 	/* Free the copied data lines */

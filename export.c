@@ -140,7 +140,7 @@ looks_like_executable(const struct rcs_file *file, const char *data)
 /* export a blob for the given file revision data */
 static void
 export_revision_blob(struct rcs_file *file, const struct rcs_number *revnum,
-	const char *data)
+	const char *data, bool member_type_other)
 {
 	struct rcs_version *ver;
 
@@ -148,7 +148,8 @@ export_revision_blob(struct rcs_file *file, const struct rcs_number *revnum,
 	 * Put a comment in the stream which identifies the blob.  This is only
 	 * for debugging.
 	 */
-	printf("# %s rev. %s\n", file->name, rcs_number_string_sb(revnum));
+	printf("# %s rev. %s%s\n", file->name, rcs_number_string_sb(revnum),
+		member_type_other ? " (no keyword expansion)" : "");
 
 	/*
 	 * Each blob is given a unique mark number.  Later when committing file
@@ -160,8 +161,13 @@ export_revision_blob(struct rcs_file *file, const struct rcs_number *revnum,
 	printf("%s\n", data);
 
 	ver = rcs_file_find_version(file, revnum, true);
-	ver->blob_mark = blob_mark_counter; /* Save the mark */
 	ver->executable = looks_like_executable(file, data);
+
+	/* Save the mark */
+	if (member_type_other)
+		file->other_blob_mark = blob_mark_counter;
+	else
+		ver->blob_mark = blob_mark_counter;
 }
 
 /* export a blob for the given binary file revision data */
@@ -249,6 +255,7 @@ export_filemodifies(const struct file_change *mods)
 	for (m = mods; m; m = m->next) {
 		ver = rcs_file_find_version(m->file, &m->newrev, true);
 		printf("M %o :%lu %s\n", ver->executable ? 0755 : 0644,
+			m->member_type_other ? m->file->other_blob_mark :
 			ver->blob_mark, m->canonical_name);
 	}
 }

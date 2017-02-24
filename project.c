@@ -40,11 +40,11 @@ validate_project_data(const char *pjdata, const struct rcs_number *revnum)
 }
 
 /* find an RCS file in the hash table by name */
-static const struct rcs_file *
+static struct rcs_file *
 rcs_file_find(const char *name)
 {
 	uint32_t bucket;
-	const struct rcs_file *f;
+	struct rcs_file *f;
 
 	bucket = hash_string(name) % ARRAY_SIZE(file_hash_table);
 	for (f = file_hash_table[bucket]; f; f = f->hash_next)
@@ -112,6 +112,7 @@ project_revision_read_files(const char *pjdata)
 	const char flist_start_marker[] = "\nEndOptions\n";
 	const char file_prefix[] = "$(projectdir)/";
 	struct rcs_file_revision *head, **prev, *frev;
+	struct rcs_file *file;
 	const char *flist, *line, *lp, *endline;
 	char file_path[1024], errline[1024], rcsnumstr[RCS_MAX_REV_LEN];
 	struct rcs_number revnum;
@@ -227,12 +228,13 @@ project_revision_read_files(const char *pjdata)
 			 * no explanation of what that means.  It seems to be
 			 * rare, and related to deleting and re-adding files.
 			 *
-			 * In every observed instance, MKSSI grabs the head
-			 * revision for these files, even though the head
-			 * revision might be much newer than this project
-			 * revision...
+			 * In the observed cases (small sample size), if the
+			 * file is a binary file, MKSSI grabs the head revision;
+			 * if it is a text file, it grabs rev. 1.1 without doing
+			 * RCS keyword expansion.  This seems strange so perhaps
+			 * there is actually another rule at play.
 			 */
-			 revnum.c = 0; /* Will grab head revision below */
+			 revnum.c = 0; /* Will grab correct revision below */
 		else if (!strncmp(lp, " i", 2) || !strncmp(lp, " s", 2)) {
 			/*
 			 * According to the manual, "i" means included sub-
@@ -247,23 +249,39 @@ project_revision_read_files(const char *pjdata)
 		}
 
 		frev = xcalloc(1, sizeof *frev, __func__);
-		frev->file = rcs_file_find(file_path);
-		if (!frev->file) {
+		file = rcs_file_find(file_path);
+		if (!file) {
 			fprintf(stderr, "warning: ignoring file without RCS "
 				" master file:\n");
 			fprintf(stderr, "\t%s\n", errline);
 			free(frev);
 			continue;
 		}
-		if (frev->file->corrupt) {
+		if (file->corrupt) {
 			free(frev);
 			continue;
 		}
 		frev->canonical_name = xstrdup(file_path, __func__);
 		if (revnum.c)
 			frev->rev = revnum;
-		else
-			frev->rev = frev->file->head;
+		else if (file->binary)
+			frev->rev = file->head;
+		else {
+			/* rev. 1.1 */
+			frev->rev.n[0] = 1;
+			frev->rev.n[1] = 1;
+			frev->rev.c = 2;
+
+			/*
+			 * MKSSI does not seem to expand RCS keywords when it
+			 * gets rev. 1.1 for an "other" member type.  That means
+			 * we need to export a special edition of rev. 1.1 w/out
+			 * keyword expansion.
+			 */
+			frev->member_type_other = true;
+			file->has_member_type_other = true;
+		}
+		frev->file = file;
 		*prev = frev;
 		prev = &frev->next;
 	}
@@ -469,7 +487,7 @@ find_checkpoint_file_revisions(const struct rcs_number *pjrev)
 /* interpret a given revision of project.pj */
 static void
 project_data_handler(struct rcs_file *file, const struct rcs_number *revnum,
-	const char *data)
+	const char *data, bool unused)
 {
 	const struct rcs_file_revision *frev_list;
 

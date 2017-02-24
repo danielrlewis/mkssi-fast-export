@@ -85,6 +85,16 @@ struct rcs_file {
 	char *master_name; /* path to RCS master file */
 	bool binary, corrupt;
 
+	/*
+	 * For text files, if listed in the project with member type "other",
+	 * MKSSI seems to grab rev. 1.1 without doing RCS keyword expansion.
+	 * Setting has_member_type_other to true lets us know we need to export
+	 * a version of rev. 1.1 without keyword expansion; the blob marker for
+	 * it is saved in other_blob_mark.
+	 */
+	bool has_member_type_other;
+	unsigned long other_blob_mark;
+
 	/* RCS metadata */
 	struct rcs_number head, branch;
 	struct rcs_symbol *symbols;
@@ -98,6 +108,7 @@ struct rcs_file_revision {
 	const struct rcs_file *file;
 	struct rcs_number rev;
 	char *canonical_name; /* name with capitalization fixes */
+	bool member_type_other;
 };
 
 /* list of changes to files */
@@ -107,6 +118,7 @@ struct file_change {
 	const char *canonical_name; /* name with capitalization fixes */
 	const char *old_canonical_name; /* used only for renames */
 	struct rcs_number oldrev, newrev;
+	bool member_type_other;
 };
 
 /* set of all changes between project revisions */
@@ -213,7 +225,8 @@ void export_progress(const char *fmt, ...);
 
 /* rcs-text.c */
 typedef void rcs_revision_data_handler_t(struct rcs_file *file,
-	const struct rcs_number *revnum, const char *data);
+	const struct rcs_number *revnum, const char *data,
+	bool member_type_other);
 void rcs_file_read_all_revisions(struct rcs_file *file,
 	rcs_revision_data_handler_t *callback);
 
@@ -225,6 +238,7 @@ void rcs_binary_file_read_all_revisions(struct rcs_file *file,
 	rcs_revision_binary_data_handler_t *callback);
 
 /* rcs-keyword.c */
+void rcs_data_unescape_ats(struct rcs_line *dlines);
 void rcs_data_keyword_expansion(const struct rcs_file *file,
 	const struct rcs_version *ver, const struct rcs_patch *patch,
 	struct rcs_line *dlines);

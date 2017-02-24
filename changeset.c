@@ -28,6 +28,7 @@ find_adds(const struct rcs_file_revision *old,
 			change->file = n->file;
 			change->canonical_name = n->canonical_name;
 			change->newrev = n->rev;
+			change->member_type_other = n->member_type_other;
 			*prev_next = change;
 			prev_next = &change->next;
 		}
