@@ -267,7 +267,7 @@ dir_list_from_path(const char *path)
 			continue;
 		dir = xmalloc(sizeof *dir, __func__);
 		dir->path = path;
-		dir->len = pos - path;
+		dir->len = pos - path + 1;
 		*prev_next = dir;
 		prev_next = &dir->next;
 	}
