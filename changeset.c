@@ -134,8 +134,12 @@ find_implicit_dir_renames(const struct rcs_file_revision *old,
 			 	 * If the difference does not occur in the final
 			 	 * directory, ignore it, it will be handled by a
 			 	 * different iteration through the loop.
+			 	 *
+			 	 * The paths include a trailing path separator,
+			 	 * so the -2 on the next line gets us a pointer
+			 	 * to the last name character for the directory.
 			 	 */
-				oname = od->path + od->len - 1;
+				oname = od->path + od->len - 2;
 				while (oname > od->path && *oname != '/')
 					--oname;
 				nname = nd->path + (oname - od->path);
@@ -151,14 +155,19 @@ find_implicit_dir_renames(const struct rcs_file_revision *old,
 				 * never freed.  This code path is executed very
 				 * rarely in a typical MKSSI project, so
 				 * overlooking the memory leak for now.
+				 *
+				 * The rename commit cannot have trailing path
+				 * separators, but the in-memory paths have them
+				 * (included in the length), which is why the
+				 * name copy is cut off at len-1.
 				 */
-				path = xmalloc(od->len + 1, __func__);
-				memcpy(path, od->path, od->len);
-				path[od->len] = '\0';
+				path = xmalloc(od->len, __func__);
+				memcpy(path, od->path, od->len-1);
+				path[od->len-1] = '\0';
 				rename->old_canonical_name = path;
-				path = xmalloc(nd->len + 1, __func__);
-				memcpy(path, nd->path, nd->len);
-				path[nd->len] = '\0';
+				path = xmalloc(nd->len, __func__);
+				memcpy(path, nd->path, nd->len-1);
+				path[nd->len-1] = '\0';
 				rename->canonical_name = path;
 
 				rename->next = head;
