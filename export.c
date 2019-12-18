@@ -307,6 +307,36 @@ export_checkpoint_tag(const char *tag, const char *from_branch,
 	printf("%s\n", patch->log);
 }
 
+/* export tag to demarcate MKSSI history from subsequent Git history */
+static void
+export_demarcating_tag(const char *branch)
+{
+	char *tag, *msg;
+	static const char msg_template[] =
+"Final commit exported from MKSSI for branch %s\n\
+\n\
+This tag marks the final commit on this branch that was exported from MKS\n\
+Source Integrity (MKSSI).  The tagged commit and all antecedents were exported\n\
+by mkssi-fast-export into Git via git-fast-import(1).\n\
+\n\
+";
+
+	export_progress("exporting demarcating tag for branch %s", branch);
+
+	tag = sprintf_alloc("%s_mkssi", branch);
+	msg = sprintf_alloc(msg_template, branch);
+
+	printf("tag %s\n", tag);
+	printf("from refs/heads/%s\n", branch);
+	printf("tagger %s <%s> %lu %s\n", "mkssi-fast-export", "none",
+		(unsigned long)time(NULL), TIMEZONE);
+	printf("data %zu\n", strlen(msg));
+	printf("%s\n", msg);
+
+	free(msg);
+	free(tag);
+}
+
 /* export a branchpoint */
 static void
 export_branchpoint(const char *from_branch, const char *new_branch)
@@ -468,6 +498,28 @@ export_project_changes(void)
 	}
 }
 
+/* tag each branch to demarcate MKSSI history from subsequent Git history */
+static void
+export_demarcating_tags(void)
+{
+	const struct rcs_symbol *b;
+
+	export_progress("exporting demarcating tags");
+
+	for (b = project_branches; b; b = b->next) {
+		/* Skip MKSSI branches which don't have Git branches. */
+		if (!pjrev_find_branch(&b->number))
+			continue;
+		export_demarcating_tag(b->symbol_name);
+	}
+
+	/*
+	 * If the trunk is a branch, it was tagged above; otherwise, tag it now.
+	 */
+	if (!trunk_branch.c)
+		export_demarcating_tag("master");
+}
+
 /* export a stream of git fast-import commands */
 void
 export(void)
@@ -492,4 +544,10 @@ export(void)
 	 * history of the MKSSI project.
 	 */
 	export_project_changes();
+
+	/*
+	 * Export tags that will demarcate the MKSSI history from future commits
+	 * made via Git.
+	 */
+	export_demarcating_tags();
 }
