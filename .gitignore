@@ -2,4 +2,5 @@ gram.c
 gram.h
 lex.c
 lex.h
+*.o
 mkssi-fast-export
