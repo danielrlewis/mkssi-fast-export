@@ -11,6 +11,7 @@
 
 #define ARRAY_SIZE(a) (sizeof(a)/sizeof((a)[0]))
 #define min(a, b) ((a) < (b) ? (a) : (b))
+#define max(a, b) ((a) > (b) ? (a) : (b))
 
 #define RCS_MAX_DIGITS 10 /* max digits in decimal numbers */
 #define RCS_MAX_BRANCHWIDTH 10

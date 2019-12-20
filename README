@@ -47,9 +47,6 @@ preserved in the commits.  To compensate, mkssi-fast-export relies heavily upon
 MKSSI checkpoints when it groups sets of revisions into commits.  The result
 will look strange if the project was rarely checkpointed.
 
-All commits are assigned the timestamp of the MKSSI checkpoint which
-incorporated the changes, rather than preserving the original timestamp.
-
 MKSSI branch and checkpoint names which are not legal in Git are munged to make
 them so.  For example, spaces are changed to underscores.  There are edge cases
 where this might result in duplicate names.  Note that MKSSI checkpoints are
@@ -90,17 +87,18 @@ To convert a repository, run something like the following sequence of commands:
 	$ cd foobar.git
 	$ git init --bare
 	$ mkssi-fast-export \
-                --authormap=authors.txt \
-                --source-dir=T:/mks/projects/mks/foobar \
-                --proj-dir=../foobar_mkssi_proj
-                --rcs-dir=../foobar_mkssi_rcs \
+		--authormap=authors.txt \
+		--source-dir=T:/mks/projects/mks/foobar \
+		--proj-dir=../foobar_mkssi_proj
+		--rcs-dir=../foobar_mkssi_rcs \
 		| git fast-import
-	$ git gc --aggressive
+	$ git gc --aggressive --prune=now
+	$ git fsck
 
 --authormap is not required but highly recommended: it maps from MKSSI usernames
 to the human names and email addresses used for Git commit authors.  The format
 for the author map is the same as cvs-fast-export (see its documentation),
-except that the optional timestamp field is not currently implemented and will
+except that the optional timezone field is not currently implemented and will
 be ignored if present.
 
 To find a list of usernames which should be in the author map, run the

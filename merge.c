@@ -147,13 +147,18 @@ commit_msg_updates(const struct file_change *updates)
 	return msg;
 }
 
-/* generate commit message for an add commit */
+/* generate commit message for a delete commit */
 static char *
 commit_msg_deletes(const struct file_change *deletes)
 {
 	unsigned int count;
 	const struct file_change *d;
 	char *msg;
+
+	/*
+	 * MKSSI has no revision history comments for deleted files, so this
+	 * function auto-generates a commit message for the deleted files.
+	 */
 
 	/* count the number of files being deleted */
 	for (d = deletes, count = 0; d; d = d->next, ++count)
@@ -222,7 +227,7 @@ emulate the MKSSI behavior, the directory must be renamed in such cases.\n\
 
 /* merge adds into commits */
 static struct git_commit *
-merge_adds(const char *branch, struct file_change *add_list, time_t cp_date)
+merge_adds(const char *branch, struct file_change *add_list)
 {
 	struct file_change *add, *a, **old_prev_next, **new_prev_next;
 	struct git_commit *head, **prev_next, *c;
@@ -243,7 +248,7 @@ merge_adds(const char *branch, struct file_change *add_list, time_t cp_date)
 		c = xcalloc(1, sizeof *c, __func__);
 		c->branch = branch;
 		c->committer = author_map(ver->author);
-		c->date = cp_date;
+		c->date = ver->date.value; /* See comment below on timestamps */
 		c->changes.adds = add;
 
 		old_prev_next = &add_list;
@@ -258,6 +263,22 @@ merge_adds(const char *branch, struct file_change *add_list, time_t cp_date)
 
 				/* Remove from the old list. */
 				*old_prev_next = a->next;
+
+				/*
+				 * Use the file revision with the newest date as
+				 * the commit timestamp.
+				 *
+				 * Note: MKSSI stores the mtime of the file
+				 * being added as the revision timestamp, which
+				 * can differ considerably from when the user
+				 * added the file to the project.  For example,
+				 * a file last modified several years ago will,
+				 * when added to the project, have a revision
+				 * timestamp from several years ago.  We use
+				 * this timestamp anyway, for lack of a better
+				 * alternative.
+				 */
+				c->date = max(c->date, add_ver->date.value);
 			} else
 				/*
 				 * Save the next pointer, so that if the next
@@ -356,17 +377,16 @@ not_match:
 
 /* merge updates into commits */
 static struct git_commit *
-merge_updates(const char *branch, struct file_change *update_list,
-	time_t cp_date)
+merge_updates(const char *branch, struct file_change *update_list)
 {
 	struct file_change *update;
+	const struct file_change *u;
+	const struct rcs_version *ver;
 	struct git_commit *head, **prev_next, *c;
 
 	/*
 	 * Batch together updates which have the same author and revision
 	 * comment.
-	 *
-	 * The MKSSI timestamp is unreliable and is not used.
 	 */
 	prev_next = &head;
 	for (update = update_list; update; update = update_list) {
@@ -374,7 +394,6 @@ merge_updates(const char *branch, struct file_change *update_list,
 
 		c = xcalloc(1, sizeof *c, __func__);
 		c->branch = branch;
-		c->date = cp_date;
 		c->changes.updates = update;
 
 		if (rcs_number_compare(&update->newrev, &update->oldrev) < 0) {
@@ -388,6 +407,24 @@ merge_updates(const char *branch, struct file_change *update_list,
 			c->committer = author_map(rcs_file_find_version(
 				update->file, &update->newrev, true)->author);
 			merge_matching_updates(update, &update_list);
+		}
+
+		/*
+		 * Use the file revision with the newest date as the commit
+		 * timestamp.
+		 *
+		 * Note: MKSSI stores the mtime of the file as the revision
+		 * timestamp, which can differ considerably from when the user
+		 * checked-in the updated file.  For example, if a user edits
+		 * a file but waits two months to check-in that change, the
+		 * timestamp stored for that file revision will be from two
+		 * months ago.  We use this timestamp anyway, for lack of a
+		 * better alternative.
+		 */
+		c->date = 0;
+		for (u = c->changes.updates; u; u = u->next) {
+			ver = rcs_file_find_version(u->file, &u->newrev, true);
+			c->date = max(c->date, ver->date.value);
 		}
 
 		c->commit_msg = commit_msg_updates(c->changes.updates);
@@ -445,10 +482,10 @@ merge_changeset_into_commits(const char *branch,
 	rename_commit = merge_renames(branch, changes->renames, cp_date);
 	changes->renames = NULL;
 
-	add_commits = merge_adds(branch, changes->adds, cp_date);
+	add_commits = merge_adds(branch, changes->adds);
 	changes->adds = NULL;
 
-	update_commits = merge_updates(branch, changes->updates, cp_date);
+	update_commits = merge_updates(branch, changes->updates);
 	changes->updates = NULL;
 
 	delete_commit = merge_deletes(branch, changes->deletes, cp_date);
