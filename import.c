@@ -70,7 +70,7 @@ import_rcs_file(const char *relative_path)
 
 	file = xcalloc(1, sizeof *file, __func__);
 retry:
-	file->master_name = sprintf_alloc("%s/%s", mkssi_dir_path,
+	file->master_name = sprintf_alloc("%s/%s", mkssi_rcs_dir_path,
 		relative_path);
 	file->name = xstrdup(relative_path, __func__);
 
@@ -177,14 +177,14 @@ import_rcs_files_in_dir(const char *relative_dir_path)
 	struct rcs_file *file;
 
 	/* 1024 should be big enough for any file in this directory */
-	relative_path = xmalloc(strlen(mkssi_dir_path) + 1 +
+	relative_path = xmalloc(strlen(mkssi_rcs_dir_path) + 1 +
 		strlen(relative_dir_path) + 1 + 1024, __func__);
 
 	if (*relative_dir_path)
-		sprintf(relative_path, "%s/%s", mkssi_dir_path,
+		sprintf(relative_path, "%s/%s", mkssi_rcs_dir_path,
 			relative_dir_path);
 	else
-		strcpy(relative_path, mkssi_dir_path);
+		strcpy(relative_path, mkssi_rcs_dir_path);
 
 	if(!(dir = opendir(relative_path)))
 		fatal_system_error("cannot opendir \"%s\"", relative_path);
@@ -218,7 +218,7 @@ import_rcs_files_in_dir(const char *relative_dir_path)
 				rcs_file_add(file);
 		} else
 			fatal_error("%s/%s: unexpected file type %d",
-				mkssi_dir_path, relative_path, de->d_type);
+				mkssi_rcs_dir_path, relative_path, de->d_type);
 	}
 	closedir(dir);
 
@@ -235,12 +235,13 @@ import(void)
 	 */
 	if (!author_list)
 		export_progress("importing RCS master files from \"%s\"",
-			mkssi_dir_path);
+			mkssi_rcs_dir_path);
 
 	/* Import project.pj first, so we fail quickly if something is wrong. */
 	project = import_rcs_file("project.pj");
 	if (project->corrupt)
-		fatal_error("%s/%s is corrupt", project->name, mkssi_dir_path);
+		fatal_error("%s/%s is corrupt", project->name,
+			mkssi_rcs_dir_path);
 
 	/* Import the rest of the RCS master files. */
 	import_rcs_files_in_dir("");

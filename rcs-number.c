@@ -93,6 +93,12 @@ rcs_number_string(const struct rcs_number *n, char *str, size_t maxlen)
 	char r[RCS_MAX_DIGITS + 1];
 	int i;
 
+	if (n == TIP_REVNUM) {
+		strncpy(str, "tip", maxlen);
+		str[maxlen-1] = '\0';
+		goto out;
+	}
+
 	str[0] = '\0';
 	for (i = 0; i < n->c; i++) {
 		snprintf(r, RCS_MAX_DIGITS, "%d", n->n[i]);
@@ -103,6 +109,7 @@ rcs_number_string(const struct rcs_number *n, char *str, size_t maxlen)
 		else
 			fatal_error("revision string too long");
 	}
+out:
 	return str;
 }
 

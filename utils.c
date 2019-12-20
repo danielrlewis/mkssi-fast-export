@@ -4,6 +4,9 @@
 #include <errno.h>
 #include <string.h>
 #include <ctype.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #include "interfaces.h"
 
 /* print error message, errno string (if errno != 0), and exit */
@@ -160,6 +163,46 @@ xstrdup(const char *s, const char *legend)
 		fatal_system_error("Out of memory, strdup(\"%s\") failed in %s",
 			s, legend);
 	return ret;
+}
+
+/* get allocated string buffer containing a range of data from a file */
+char *
+file_range_as_string(const char *path, size_t offset, size_t length)
+{
+	char *fdata;
+	FILE *f;
+
+	if (!(f = fopen(path, "r")))
+		fatal_system_error("cannot open \"%s\"", path);
+
+	if (fseek(f, offset, SEEK_SET))
+		fatal_system_error("cannot seek within \"%s\"", path);
+
+	fdata = xmalloc(length + 1, __func__); /* +1 for NUL terminator */
+
+	errno = 0;
+	if (fread(fdata, 1, length, f) != length)
+		fatal_system_error("cannot read from \"%s\"", path);
+
+	fclose(f);
+
+	fdata[length] = '\0'; /* NUL-terminate the string. */
+
+	return fdata;
+}
+
+/* get allocated string buffer containing the entire contents of a file */
+char *
+file_as_string(const char *path)
+{
+	struct stat info;
+
+	if (stat(path, &info))
+		fatal_system_error("cannot stat \"%s\"", path);
+	if (!S_ISREG(info.st_mode))
+		fatal_error("not a regular file: \"%s\"", path);
+
+	return file_range_as_string(path, 0, info.st_size);
 }
 
 /* sanitize a character from an MKSSI branch name; -1 return means skip char */

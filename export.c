@@ -29,39 +29,74 @@ pjrev_find_checkpoint(const struct rcs_number *pjrev)
 	return NULL;
 }
 
-/* find a branch by project revision number */
-static const char *
-pjrev_find_branch(const struct rcs_number *pjrev)
+/* find a branch (optionally after another branch) by project revision number */
+static const struct mkssi_branch *
+pjrev_find_branch_after(const struct rcs_number *pjrev,
+	const struct mkssi_branch *prev_branch)
 {
-	const struct rcs_symbol *b;
+	const struct mkssi_branch *b;
 
 	/* Trunk project revisions go on the trunk, unless... */
 	if (rcs_number_is_trunk(pjrev)) {
+
 		/*
 		 * ...unless we are dealing with one of those weird projects
 		 * where the trunk history somehow got put onto an nameless
 		 * branch revision (the trunk_branch), in which case any
-		 * revisions >trunk_branch are not actually trunk revisions;
-		 * they actually have no branch.
+		 * revisions >trunk_branch are ignored.
 		 */
 		if (trunk_branch.c
 		 && rcs_number_compare(pjrev, &trunk_branch) > 0)
 			return NULL;
 
-		return "master";
+		/*
+		 * It's assumed that there aren't multiple branches sharing the
+		 * trunk revision.
+		 */
+		if (prev_branch)
+			return NULL;
+
+		/* Find and return the trunk branch. */
+		for (b = project_branches; b; b = b->next)
+			if (!strcmp(b->branch_name, "master"))
+				return b;
+
+		fatal_error("internal error: trunk branch is missing");
+		return NULL; /* unreachable */
 	}
 
 	/*
 	 * A project branch at 1.4 would match 1.4.1.x, but not 1.4 (which is
 	 * trunk) or 1.4.1.x.1.y (which is a branch of a branch).
 	 */
-	for (b = project_branches; b; b = b->next)
+	for (b = project_branches; b; b = b->next) {
+		/*
+		 * MKSSI allows multiple branches to have the same revision
+		 * number.  To enumerate all the branches for a revision number,
+		 * specify the previous branch with that revision number as
+		 * prev_branch.
+		 */
+		if (b == prev_branch) {
+			prev_branch = NULL;
+			continue;
+		}
+		if (prev_branch)
+			continue;
+
 		if (pjrev->c - 2 == b->number.c
 		 && rcs_number_partial_match(pjrev, &b->number))
-			return b->symbol_name;
+			return b;
+	}
 
 	/* No matching branch for this project revision */
 	return NULL;
+}
+
+/* find a branch by project revision number */
+static const struct mkssi_branch *
+pjrev_find_branch(const struct rcs_number *pjrev)
+{
+	return pjrev_find_branch_after(pjrev, NULL);
 }
 
 /* print a progress message */
@@ -207,6 +242,7 @@ export_blobs(void)
 	unsigned long nf, i, progress, progress_printed;
 
 	export_progress("exporting file revision blobs");
+	export_progress("(may _appear_ to hang -- be patient...)");
 
 	/* count files to allow progress to be shown */
 	nf = 0;
@@ -341,17 +377,20 @@ by mkssi-fast-export into Git via git-fast-import(1).\n\
 static void
 export_branchpoint(const char *from_branch, const char *new_branch)
 {
+	export_progress("exporting branchpoint for branch %s (from %s)",
+		new_branch, from_branch);
 	printf("reset refs/heads/%s\n", new_branch);
 	printf("from refs/heads/%s\n\n", from_branch);
 }
 
 /* generate commits to move from one project revision to the next */
 static struct git_commit *
-get_commit_list(const char *branch, const struct rcs_number *pjrev_old,
-	const struct rcs_number *pjrev_new)
+get_commit_list(const struct mkssi_branch *branch,
+	const struct rcs_number *pjrev_old, const struct rcs_number *pjrev_new)
 {
 	const struct rcs_file_revision *frevs_old, *frevs_new;
 	const struct rcs_version *pjver_old, *pjver_new;
+	time_t new_date;
 	struct file_change_lists changes;
 
 	if (pjrev_old) {
@@ -362,55 +401,43 @@ get_commit_list(const char *branch, const struct rcs_number *pjrev_old,
 		pjver_old = NULL;
 	}
 
-	frevs_new = find_checkpoint_file_revisions(pjrev_new);
-	pjver_new = rcs_file_find_version(project, pjrev_new, true);
+	if (pjrev_new == TIP_REVNUM) {
+		/* file revisions from the branch's tip */
+		frevs_new = branch->tip_frevs;
+		new_date = time(NULL);
+	} else {
+		/* file revisions from a branch's checkpoint */
+		frevs_new = find_checkpoint_file_revisions(pjrev_new);
+		pjver_new = rcs_file_find_version(project, pjrev_new, true);
+		new_date = pjver_new->date.value;
+	}
 
 	/*
 	 * Build a list of changes between the old and new lists of file
 	 * revisions.
 	 */
 	changeset_build(frevs_old, pjver_old ? pjver_old->date.value : 0,
-		frevs_new, pjver_new->date.value, &changes);
+		frevs_new, new_date, &changes);
 
 	/* Merge these changes into a list of commits. */
-	return merge_changeset_into_commits(branch, &changes,
-		pjver_new->date.value);
+	return merge_changeset_into_commits(branch->branch_name, &changes,
+		new_date);
 }
 
-/* export all changes from a given project revision */
+/* export all changes from a given project revision onto branch */
 static void
-export_project_revision_changes(const struct rcs_number *pjrev_old,
-	const struct rcs_number *pjrev_new)
+export_project_revision_changes_onto_branch(const struct rcs_number *pjrev_old,
+	const struct rcs_number *pjrev_new, const struct mkssi_branch *branch,
+	const char *tagname)
 {
-	const char *cpname, *branch;
 	struct git_commit *commits;
 	const struct git_commit *c;
-	const struct rcs_symbol *b;
-
-	/*
-	 * Find the checkpoint name associated with this project revision.  Not
-	 * all project revisions have a named checkpoint; it is unknown how such
-	 * project revisions come into existence.
-	 */
-	cpname = pjrev_find_checkpoint(pjrev_new);
-
-	/*
-	 * Find the branch associated with this project revision.  Not all
-	 * project revisions have a branch; it is unknown how that happens.  If
-	 * there is no branch, stop because we don't have anywhere to commit
-	 * the changes.
-	 */
-	branch = pjrev_find_branch(pjrev_new);
-	if (!branch) {
-		fprintf(stderr, "warning: project rev. %s does not have a "
-			"branch\n", rcs_number_string_sb(pjrev_new));
-		return;
-	}
+	const struct mkssi_branch *b;
 
 	export_progress("exporting project rev. %s "
-		"(branch=%s checkpoint=%s)\n",
-		rcs_number_string_sb(pjrev_new), branch,
-		cpname ? cpname : "<none>");
+		"(branch=%s tag=%s)\n",
+		rcs_number_string_sb(pjrev_new), branch->branch_name,
+		tagname ? tagname : "<none>");
 
 	/* Build a list of commits and export them. */
 	commits = get_commit_list(branch, pjrev_old, pjrev_new);
@@ -418,18 +445,101 @@ export_project_revision_changes(const struct rcs_number *pjrev_old,
 		export_commit(c);
 	free_commits(commits);
 
+	/* The tip has no derived branches or checkpoint. */
+	if (pjrev_new == TIP_REVNUM)
+		return;
+
 	/*
 	 * If this project revision is the starting point for any branch(es),
 	 * create those branches now.
 	 */
 	for (b = project_branches; b; b = b->next)
 		if (rcs_number_equal(&b->number, pjrev_new)
-		 && strcmp(b->symbol_name, "master"))
-			export_branchpoint(branch, b->symbol_name);
+		 && strcmp(b->branch_name, "master"))
+			export_branchpoint(branch->branch_name, b->branch_name);
 
 	/* Create a tag to represent a named checkpoint */
-	if (cpname)
-		export_checkpoint_tag(cpname, branch, pjrev_new);
+	if (tagname)
+		export_checkpoint_tag(tagname, branch->branch_name, pjrev_new);
+}
+
+/* export all changes from a given project revision */
+static void
+export_project_revision_changes(const struct rcs_number *pjrev_old,
+	const struct rcs_number *pjrev_new)
+{
+	const struct rcs_number *pjrev_branch;
+	const struct mkssi_branch *branch;
+	const char *cpname;
+	char *tagname;
+	unsigned bcount;
+
+	/*
+	 * Find the branch associated with this project revision.  Not all
+	 * project revisions have a branch; it is unknown how that happens.
+	 */
+	pjrev_branch = pjrev_new == TIP_REVNUM ? pjrev_old : pjrev_new;
+	branch = pjrev_find_branch(pjrev_branch);
+
+	/*
+	 * Find the checkpoint name associated with this project revision.  Not
+	 * all project revisions have a named checkpoint; it is unknown how such
+	 * project revisions come into existence.
+	 *
+	 * Note that the tip of the branch is inherently not checkpointed.
+	 */
+	if (pjrev_new == TIP_REVNUM)
+		cpname = NULL;
+	else
+
+		cpname = pjrev_find_checkpoint(pjrev_new);
+
+	/*
+	 * If there is no branch, stop because we don't have anywhere to commit
+	 * the changes.
+	 */
+	if (!branch) {
+		if (pjrev_new == TIP_REVNUM)
+			fprintf(stderr, "warning: tip revision (after rev. %s) "
+				"does not have a branch\n",
+				rcs_number_string_sb(pjrev_branch));
+		else {
+			cpname = pjrev_find_checkpoint(pjrev_branch);
+			fprintf(stderr, "warning: project rev. %s "
+				"(checkpoint=%s) does not have a branch\n",
+				rcs_number_string_sb(pjrev_branch),
+				cpname ? cpname : "<none>");
+		}
+		return;
+	}
+
+	tagname = cpname ? xstrdup(cpname, __func__) : NULL;
+
+	for (bcount = 1; branch; bcount++) {
+		if (tagname && bcount > 1) {
+			/*
+			 * If there is a branch with the same revision number,
+			 * it will have the same MKSSI checkpoints.  Git won't
+			 * let us use the same tag name on multiple branches,
+			 * so in this (rare) case, munge the tag name.
+			 */
+			free(tagname);
+			tagname = sprintf_alloc("%s-%u", cpname, bcount + 1);
+		}
+
+		export_project_revision_changes_onto_branch(
+			pjrev_old, pjrev_new, branch, tagname);
+
+		/*
+		 * MKSSI allows multiple branches to use the same revision
+		 * number.  In such cases, export the changes onto each of those
+		 * branches.
+		 */
+		branch = pjrev_find_branch_after(pjrev_branch, branch);
+	}
+
+	if (tagname)
+		free(tagname);
 }
 
 /* export project changes occurring on a given branch */
@@ -440,6 +550,7 @@ export_project_branch_changes(const struct rcs_number *pjrev_start,
 	const struct rcs_branch *b;
 	const struct rcs_version *bver;
 	struct rcs_number pjrev_branch_new, pjrev_branch_old;
+	const struct mkssi_branch *mb;
 
 	pjrev_branch_old = *pjrev_start;
 	for (b = branches; b; b = b->next) {
@@ -462,6 +573,40 @@ export_project_branch_changes(const struct rcs_number *pjrev_start,
 			pjrev_branch_old = pjrev_branch_new;
 			pjrev_branch_new = bver->parent;
 		} while (pjrev_branch_new.c);
+
+		/* Export uncheckpointed changes from the tip of the branch */
+		export_project_revision_changes(&pjrev_branch_old, TIP_REVNUM);
+	}
+
+	/*
+	 * Handle another weird case: branches which are listed in the
+	 * "_mks_variant_projects" block in project.pj, but which don't have
+	 * branch revisions in the RCS metadata.  MKSSI allows such branches to
+	 * be checked-out, so they should be exported.
+	 */
+	for (mb = project_branches; mb; mb = mb->next) {
+		/* Does this MKSSI branch start from this project revision? */
+		if (!rcs_number_equal(&mb->number, pjrev_start))
+			continue;
+
+		/*
+		 * Check the RCS branch revisions.  If we find a branch which
+		 * corresponds to the MKSSI branch, then the MKSSI branch was
+		 * already exported above.
+		 */
+		for (b = branches; b; b = b->next)
+			if (rcs_number_partial_match(&b->number, &mb->number))
+				break;
+		if (b)
+			continue; /* Already exported this branch. */
+
+		/*
+		 * Export the tip revisions for this branch.  Since the branch
+		 * has no RCS branch, presumably there aren't any checkpoints to
+		 * be exported.
+		 */
+		export_project_revision_changes_onto_branch(
+			pjrev_start, TIP_REVNUM, mb, NULL);
 	}
 }
 
@@ -496,28 +641,25 @@ export_project_changes(void)
 		/* Export changes for any branch that starts here */
 		export_project_branch_changes(&pjrev_new, ver->branches);
 	}
+
+	/* Export uncheckpointed changes from the tip of the trunk */
+	if (!first)
+		export_project_revision_changes(&pjrev_old, TIP_REVNUM);
 }
 
 /* tag each branch to demarcate MKSSI history from subsequent Git history */
 static void
 export_demarcating_tags(void)
 {
-	const struct rcs_symbol *b;
+	const struct mkssi_branch *b;
 
 	export_progress("exporting demarcating tags");
 
-	for (b = project_branches; b; b = b->next) {
+	for (b = project_branches; b; b = b->next)
 		/* Skip MKSSI branches which don't have Git branches. */
-		if (!pjrev_find_branch(&b->number))
-			continue;
-		export_demarcating_tag(b->symbol_name);
-	}
-
-	/*
-	 * If the trunk is a branch, it was tagged above; otherwise, tag it now.
-	 */
-	if (!trunk_branch.c)
-		export_demarcating_tag("master");
+		if (pjrev_find_branch(&b->number)
+		 || !strcmp(b->branch_name, "master"))
+			export_demarcating_tag(b->branch_name);
 }
 
 /* export a stream of git fast-import commands */
@@ -530,7 +672,8 @@ export(void)
 	 *
 	 * This also builds a list of project branches.
 	 */
-	project_read_all_revisions();
+	project_read_checkpointed_revisions();
+	project_read_tip_revisions();
 
 	/*
 	 * Export blobs for every revision of every project file.  Doing this

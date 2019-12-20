@@ -17,6 +17,8 @@
 #define RCS_MAX_DEPTH (2 * RCS_MAX_BRANCHWIDTH + 2)
 #define RCS_MAX_REV_LEN (RCS_MAX_DEPTH * (RCS_MAX_DIGITS + 1))
 
+#define TIP_REVNUM (const struct rcs_number *)NULL
+
 /* digested form of an RCS revision */
 struct rcs_number {
 	short c;
@@ -30,6 +32,16 @@ struct rcs_symbol {
 	/* RCS metadata */
 	char *symbol_name;
 	struct rcs_number number;
+};
+
+/* a project branch within MKSSI */
+struct mkssi_branch {
+	struct mkssi_branch *next;
+
+	char *branch_name; /* sanitized branch name */
+	char *pj_name; /* vpNNNN.pj file with branch's tip revisions */
+	struct rcs_number number; /* project revision number for branch */
+	const struct rcs_file_revision *tip_frevs; /* file revisions for tip */
 };
 
 /* an RCS branch revision */
@@ -185,13 +197,14 @@ struct dir_path {
 };
 
 /* main.c */
-extern const char *mkssi_dir_path;
+extern const char *mkssi_rcs_dir_path;
+extern const char *mkssi_proj_dir_path;
 extern const char *source_dir_path;
 extern struct rcs_file *files;
 extern struct rcs_file *file_hash_table[1024];
 extern struct rcs_file *corrupt_files;
-extern struct rcs_file *project; /* project.pj */
-extern struct rcs_symbol *project_branches;
+extern struct rcs_file *project; /* RCS-revisioned project.pj */
+extern struct mkssi_branch *project_branches;
 extern struct rcs_number trunk_branch;
 extern bool author_list;
 
@@ -204,7 +217,8 @@ struct rcs_timestamp lex_date(const struct rcs_number *n, void *yyscanner,
 	const struct rcs_file *file);
 
 /* project.c */
-void project_read_all_revisions(void);
+void project_read_checkpointed_revisions(void);
+void project_read_tip_revisions(void);
 const struct rcs_file_revision *find_checkpoint_file_revisions(
 	const struct rcs_number *pjrev);
 
@@ -285,6 +299,8 @@ void *xmalloc(size_t size, const char *legend);
 void *xcalloc(size_t nmemb, size_t size, const char *legend);
 void *xrealloc(void *ptr, size_t size, const char *legend);
 char *xstrdup(const char *s, const char *legend);
+char *file_range_as_string(const char *path, size_t offset, size_t length);
+char *file_as_string(const char *path);
 size_t parse_mkssi_branch_char(const char *s, int *cp);
 struct rcs_version *rcs_file_find_version(const struct rcs_file *file,
 	const struct rcs_number *revnum, bool fatalerr);

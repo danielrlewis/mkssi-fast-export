@@ -97,7 +97,7 @@ expanded_header_str(const struct rcs_file *file,
 	if (source_dir_path)
 		path = source_dir_path;
 	else
-		path = mkssi_dir_path;
+		path = mkssi_rcs_dir_path;
 
 	return sprintf_alloc("$Header: %s/%s %s %s %s %s $", path, file->name,
 		rcs_number_string_sb(&ver->number), ver->date.string,
@@ -141,7 +141,7 @@ expanded_source_str(const struct rcs_file *file,
 	if (source_dir_path)
 		path = source_dir_path;
 	else
-		path = mkssi_dir_path;
+		path = mkssi_rcs_dir_path;
 
 	return sprintf_alloc("$Source: %s/%s $", path, file->name);
 }

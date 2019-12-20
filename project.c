@@ -315,12 +315,12 @@ sanitize_branch_name(char *branch_name)
 }
 
 /* parse a project.pj variant project line */
-static struct rcs_symbol *
+static struct mkssi_branch *
 parse_project_branch_line(const char *line, const char *endline)
 {
 	char rcs_num_str[RCS_MAX_REV_LEN];
 	const char *pos, *name_start;
-	struct rcs_symbol *branch;
+	struct mkssi_branch *branch;
 	unsigned int i;
 
 	branch = xcalloc(1, sizeof *branch, __func__);
@@ -332,6 +332,7 @@ parse_project_branch_line(const char *line, const char *endline)
 	 * 	1.2=vp0000.pj, "v1_0_Release"
 	 */
 
+	/* parse the branch revision number */
 	for (i = 0, pos = line; *pos != '='; ++pos, ++i) {
 		if (i == sizeof rcs_num_str - 1)
 			fatal_error("revision number too long: %s", line);
@@ -340,43 +341,50 @@ parse_project_branch_line(const char *line, const char *endline)
 		rcs_num_str[i] = *pos;
 	}
 	rcs_num_str[i] = '\0';
-
 	branch->number = lex_number(rcs_num_str);
 
-	pos = strstr(pos, "\"");
+	/* parse the branch project file name */
+	++pos; /* Move past the '=' */
+	name_start = pos;
+	pos = strchr(pos, ',');
+	if (!pos || pos > endline)
+		fatal_error("missing project file: %s", line);
+	branch->pj_name = xcalloc(1, pos - name_start + 1, __func__);
+	memcpy(branch->pj_name, name_start, pos - name_start);
+
+	/* parse the branch name */
+	pos = strchr(pos, '"');
 	if (!pos || pos > endline)
 		fatal_error("missing branch name: %s", line);
-
 	++pos; /* Move past the '"' */
 	name_start = pos;
-	pos = strstr(pos, "\"");
+	pos = strchr(pos, '"');
 	if (!pos || pos > endline)
 		fatal_error("unterminated branch name: %s", line);
-
-	branch->symbol_name = xcalloc(1, pos - name_start + 1, __func__);
-	memcpy(branch->symbol_name, name_start, pos - name_start);
-	sanitize_branch_name(branch->symbol_name);
+	branch->branch_name = xcalloc(1, pos - name_start + 1, __func__);
+	memcpy(branch->branch_name, name_start, pos - name_start);
+	sanitize_branch_name(branch->branch_name);
 
 	return branch;
 }
 
 /* add a project branch to the list, if it is not there already */
 static void
-project_branch_add(struct rcs_symbol **branches, struct rcs_symbol *branch)
+project_branch_add(struct mkssi_branch **branches, struct mkssi_branch *branch)
 {
-	struct rcs_symbol *b, **bptr;
+	struct mkssi_branch *b, **bptr;
 	int cmp;
 
 	/*
 	 * The special "trunk branch" is used for weird projects where the trunk
-	 * somehow becomes an namless branch revision.  The trunk branch should
+	 * somehow becomes an nameless branch revision.  The trunk branch should
 	 * never have the same branch number as an actual legit branch.
 	 */
 	if (rcs_number_equal(&branch->number, &trunk_branch))
 		fatal_error("specified trunk branch rev. %s is used by an "
 			"actual branch named \"%s\"",
 			rcs_number_string_sb(&trunk_branch),
-			branch->symbol_name);
+			branch->branch_name);
 
 	/*
 	 * This branch might have already been recorded from another revision of
@@ -384,7 +392,7 @@ project_branch_add(struct rcs_symbol **branches, struct rcs_symbol *branch)
 	 */
 	bptr = branches;
 	for (b = *bptr; b; b = *bptr) {
-		if (!strcmp(b->symbol_name, branch->symbol_name)) {
+		if (!strcmp(b->branch_name, branch->branch_name)) {
 			/*
 			 * If the branch is found multiple times with different
 			 * revision numbers, let the highest revision take
@@ -395,12 +403,15 @@ project_branch_add(struct rcs_symbol **branches, struct rcs_symbol *branch)
 			if (cmp < 0) {
 				/* Remove from list and reinsert */
 				*bptr = b->next;
-				free(b->symbol_name);
+				free(b->branch_name);
+				free(b->pj_name);
 				free(b);
 				break;
 			}
 
 			/* Branch already in list. */
+			free(branch->branch_name);
+			free(branch->pj_name);
 			free(branch);
 			return;
 		}
@@ -421,7 +432,8 @@ project_branch_add(struct rcs_symbol **branches, struct rcs_symbol *branch)
 
 /* extract all project branches from a revision of project.pj */
 static void
-project_revision_read_branches(struct rcs_symbol **branches, const char *pjdata)
+project_revision_read_branches(struct mkssi_branch **branches,
+	const char *pjdata)
 {
 	const char start_marker[] = "block _mks_variant_projects\n";
 	const char *start, *end, *line, *endline;
@@ -512,14 +524,68 @@ project_data_handler(struct rcs_file *file, const struct rcs_number *revnum,
 	 */
 	mark_checkpointed_revisions(frev_list);
 
-	/* Add any new branches found in this revision */
-	project_revision_read_branches(&project_branches, data);
+	/*
+	 * If we won't be reading the project.pj in the project directory and
+	 * this is the head revision of project.pj in the RCS directory, then
+	 * we are looking at the newest copy of the branch list that we'll ever
+	 * see -- save it.
+	 *
+	 * We used to parse the branch list from every project.pj revision and
+	 * merge the results, but this resulted in exporting branches that are
+	 * no longer in MKSSI.  Sometimes these branches were corrupt, causing
+	 * the export to fail.
+	 */
+	if (!mkssi_proj_dir_path && rcs_number_equal(revnum, &file->head))
+		project_revision_read_branches(&project_branches, data);
 }
 
-/* read and parse every revision of project.pj */
+/* read and parse every checkpointed revision of project.pj */
 void
-project_read_all_revisions(void)
+project_read_checkpointed_revisions(void)
 {
 	export_progress("reading checkpointed project revisions");
 	rcs_file_read_all_revisions(project, project_data_handler);
+}
+
+/* read and parse the tip revisions for the trunk and branches */
+void
+project_read_tip_revisions(void)
+{
+	struct mkssi_branch *b;
+	char *path, *pjdata;
+
+	/* This step is skipped if the project directory wasn't provided. */
+	if (!mkssi_proj_dir_path)
+		return;
+
+	export_progress("reading tip project revisions");
+
+	for (b = project_branches; b; b = b->next) {
+		export_progress("reading tip revisions for branch %s",
+			b->branch_name);
+
+		if (!strcmp(b->branch_name, "master"))
+			path = sprintf_alloc("%s/project.pj",
+				mkssi_proj_dir_path);
+		else
+			path = sprintf_alloc("%s/project.vpj/%s",
+				mkssi_proj_dir_path, b->pj_name);
+
+		pjdata = file_as_string(path);
+
+		validate_project_data(pjdata, &b->number);
+
+		/*
+		 * If this is the master branch, save the branch list from
+		 * project.pj.
+		 */
+		if (!strcmp(b->branch_name, "master"))
+			project_revision_read_branches(
+				&project_branches, pjdata);
+
+		b->tip_frevs = project_revision_read_files(pjdata);
+
+		free(pjdata);
+		free(path);
+	}
 }
