@@ -496,33 +496,34 @@ find_checkpoint_file_revisions(const struct rcs_number *pjrev)
 	return NULL; /* unreachable */
 }
 
+/* parse file list and optionally branches in a revision of project.pj */
+static const struct rcs_file_revision *
+project_parse_revision(const char *pjdata, const struct rcs_number *revnum,
+	bool save_branches)
+{
+	/* Sanity check the revision text */
+	validate_project_data(pjdata, revnum);
+
+	if (save_branches)
+		project_revision_read_branches(&project_branches, pjdata);
+
+	/*
+	 * Read the list of files and file revision numbers that were current
+	 * at the time of this project revision.
+	 */
+	return project_revision_read_files(pjdata);
+}
+
 /* interpret a given revision of project.pj */
 static void
 project_data_handler(struct rcs_file *file, const struct rcs_number *revnum,
 	const char *data, bool unused)
 {
 	const struct rcs_file_revision *frev_list;
+	bool save_branches;
 
 	export_progress("parsing project revision %s",
 		rcs_number_string_sb(revnum));
-
-	/* Sanity check the revision text */
-	validate_project_data(data, revnum);
-
-	/*
-	 * Read the list of files and file revision numbers that were current
-	 * at the time of this project revision.
-	 */
-	frev_list = project_revision_read_files(data);
-
-	/* Save said list for later. */
-	save_checkpoint_file_revisions(revnum, frev_list);
-
-	/*
-	 * Mark all of these file revisions as checkpointed.  This information
-	 * is useful later when building the changesets.
-	 */
-	mark_checkpointed_revisions(frev_list);
 
 	/*
 	 * If we won't be reading the project.pj in the project directory and
@@ -536,7 +537,20 @@ project_data_handler(struct rcs_file *file, const struct rcs_number *revnum,
 	 * the export to fail.
 	 */
 	if (!mkssi_proj_dir_path && rcs_number_equal(revnum, &file->head))
-		project_revision_read_branches(&project_branches, data);
+		save_branches = true;
+	else
+		save_branches = false;
+
+	frev_list = project_parse_revision(data, revnum, save_branches);
+
+	/* Save said list for later. */
+	save_checkpoint_file_revisions(revnum, frev_list);
+
+	/*
+	 * Mark all of these file revisions as checkpointed.  This information
+	 * is useful later when building the changesets.
+	 */
+	mark_checkpointed_revisions(frev_list);
 }
 
 /* read and parse every checkpointed revision of project.pj */
@@ -547,12 +561,47 @@ project_read_checkpointed_revisions(void)
 	rcs_file_read_all_revisions(project, project_data_handler);
 }
 
+/* read and parse the tip revisions for a branch */
+static void
+project_branch_read_tip_revision(struct mkssi_branch *b)
+{
+	char *path, *pjdata;
+	bool is_master;
+
+	export_progress("reading tip revisions for branch %s", b->branch_name);
+
+	is_master = !strcmp(b->branch_name, "master");
+
+	/*
+	 * The trunk (a.k.a. master) has its tip revisions in project.pj; the
+	 * branches have their tip revisions in a project.vpj subdirectory,
+	 * with a file name that is listed in project.pj (this file name was
+	 * previously parsed and saved).
+	 */
+	if (is_master)
+		path = sprintf_alloc("%s/project.pj", mkssi_proj_dir_path);
+	else
+		path = sprintf_alloc("%s/project.vpj/%s",
+			mkssi_proj_dir_path, b->pj_name);
+
+	/* Get the entire project file as a NUL-terminated string. */
+	pjdata = file_as_string(path);
+
+	/*
+	 * Get the list of file revisions.  If this is the master, also save the
+	 * branch list.
+	 */
+	b->tip_frevs = project_parse_revision(pjdata, &b->number, is_master);
+
+	free(pjdata);
+	free(path);
+}
+
 /* read and parse the tip revisions for the trunk and branches */
 void
 project_read_tip_revisions(void)
 {
 	struct mkssi_branch *b;
-	char *path, *pjdata;
 
 	/* This step is skipped if the project directory wasn't provided. */
 	if (!mkssi_proj_dir_path)
@@ -560,32 +609,29 @@ project_read_tip_revisions(void)
 
 	export_progress("reading tip project revisions");
 
-	for (b = project_branches; b; b = b->next) {
-		export_progress("reading tip revisions for branch %s",
-			b->branch_name);
+	/*
+	 * At this point, the master branch should be the first and only branch
+	 * on the project_branches list.
+	 */
+	if (!project_branches || project_branches->next
+	 || strcmp(project_branches->branch_name, "master"))
+		fatal_error("internal error: unexpected branch list");
 
-		if (!strcmp(b->branch_name, "master"))
-			path = sprintf_alloc("%s/project.pj",
-				mkssi_proj_dir_path);
-		else
-			path = sprintf_alloc("%s/project.vpj/%s",
-				mkssi_proj_dir_path, b->pj_name);
+	/*
+	 * Read the tip revision of the master branch first, so that the
+	 * project_branches list will be fully populated before we try to loop
+	 * through it.
+	 */
+	project_branch_read_tip_revision(project_branches);
 
-		pjdata = file_as_string(path);
-
-		validate_project_data(pjdata, &b->number);
-
-		/*
-		 * If this is the master branch, save the branch list from
-		 * project.pj.
-		 */
-		if (!strcmp(b->branch_name, "master"))
-			project_revision_read_branches(
-				&project_branches, pjdata);
-
-		b->tip_frevs = project_revision_read_files(pjdata);
-
-		free(pjdata);
-		free(path);
-	}
+	/*
+	 * Read the tip revision of every branch.
+	 *
+	 * Note that project_branches might have been updated: it might no
+	 * longer be the master branch.  Thus, loop from the beginning and skip
+	 * the master branch, which we already read.
+	 */
+	for (b = project_branches; b; b = b->next)
+		if (strcmp(b->branch_name, "master"))
+			project_branch_read_tip_revision(b);
 }
