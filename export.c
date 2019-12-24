@@ -38,7 +38,6 @@ pjrev_find_branch_after(const struct rcs_number *pjrev,
 
 	/* Trunk project revisions go on the trunk, unless... */
 	if (rcs_number_is_trunk(pjrev)) {
-
 		/*
 		 * ...unless we are dealing with one of those weird projects
 		 * where the trunk history somehow got put onto an nameless
@@ -575,7 +574,9 @@ export_project_branch_changes(const struct rcs_number *pjrev_start,
 		} while (pjrev_branch_new.c);
 
 		/* Export uncheckpointed changes from the tip of the branch */
-		export_project_revision_changes(&pjrev_branch_old, TIP_REVNUM);
+		if (mkssi_proj_dir_path)
+			export_project_revision_changes(
+				&pjrev_branch_old, TIP_REVNUM);
 	}
 
 	/*
@@ -605,8 +606,9 @@ export_project_branch_changes(const struct rcs_number *pjrev_start,
 		 * has no RCS branch, presumably there aren't any checkpoints to
 		 * be exported.
 		 */
-		export_project_revision_changes_onto_branch(
-			pjrev_start, TIP_REVNUM, mb, NULL);
+		if (mkssi_proj_dir_path)
+			export_project_revision_changes_onto_branch(
+				pjrev_start, TIP_REVNUM, mb, NULL);
 	}
 }
 
@@ -643,7 +645,7 @@ export_project_changes(void)
 	}
 
 	/* Export uncheckpointed changes from the tip of the trunk */
-	if (!first)
+	if (!first && mkssi_proj_dir_path)
 		export_project_revision_changes(&pjrev_old, TIP_REVNUM);
 }
 
