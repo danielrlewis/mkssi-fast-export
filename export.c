@@ -403,7 +403,7 @@ get_commit_list(const struct mkssi_branch *branch,
 	if (pjrev_new == TIP_REVNUM) {
 		/* file revisions from the branch's tip */
 		frevs_new = branch->tip_frevs;
-		new_date = time(NULL);
+		new_date = branch->mtime;
 	} else {
 		/* file revisions from a branch's checkpoint */
 		frevs_new = find_checkpoint_file_revisions(pjrev_new);

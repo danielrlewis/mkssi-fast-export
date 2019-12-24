@@ -41,6 +41,7 @@ struct mkssi_branch {
 
 	char *branch_name; /* sanitized branch name */
 	char *pj_name; /* vpNNNN.pj file with branch's tip revisions */
+	time_t mtime;  /* mtime of *.pj file */
 	struct rcs_number number; /* project revision number for branch */
 	const struct rcs_file_revision *tip_frevs; /* file revisions for tip */
 };
@@ -302,6 +303,7 @@ void *xrealloc(void *ptr, size_t size, const char *legend);
 char *xstrdup(const char *s, const char *legend);
 char *file_range_as_string(const char *path, size_t offset, size_t length);
 char *file_as_string(const char *path);
+time_t file_mtime(const char *path);
 size_t parse_mkssi_branch_char(const char *s, int *cp);
 struct rcs_version *rcs_file_find_version(const struct rcs_file *file,
 	const struct rcs_number *revnum, bool fatalerr);

@@ -205,6 +205,18 @@ file_as_string(const char *path)
 	return file_range_as_string(path, 0, info.st_size);
 }
 
+/* get the mtime (time of last modification) of a file */
+time_t
+file_mtime(const char *path)
+{
+	struct stat info;
+
+	if (stat(path, &info))
+		fatal_system_error("cannot stat \"%s\"", path);
+
+	return info.st_mtime;
+}
+
 /* sanitize a character from an MKSSI branch name; -1 return means skip char */
 static int
 sanitize_mkssi_branch_char(char c)

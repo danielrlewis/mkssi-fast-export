@@ -593,6 +593,12 @@ project_branch_read_tip_revision(struct mkssi_branch *b)
 	 */
 	b->tip_frevs = project_parse_revision(pjdata, &b->number, is_master);
 
+	/*
+	 * Save the mtime of the project file.  This will be used as the commit
+	 * timestamp for events (like file deletions) that have no RCS timestamp
+	 */
+	b->mtime = file_mtime(path);
+
 	free(pjdata);
 	free(path);
 }
