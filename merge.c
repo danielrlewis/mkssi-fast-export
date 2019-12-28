@@ -21,6 +21,14 @@ static const struct git_author unknown_author = {
 	.email = "unknown"
 };
 
+/* Commit messages note for revisions dependent on missing RCS patches. */
+static const char msg_missing[] = "\
+(Note: This commit represents a file revision whose contents have been lost due\n\
+to MKSSI project corruption.  Specifically, this file revision is dependent on\n\
+an RCS patch which is missing from the RCS file.  When MKSSI attempts to check-\n\
+out such a file revision, it creates an empty file.  In emulation of that\n\
+behavior, mkssi-fast-export has exported an empty file for this revision.)\n";
+
 /* lookup the MKSSI label for a file revision */
 static const char *
 file_revision_label(const struct rcs_file *file, const struct rcs_number *rev)
@@ -38,6 +46,7 @@ static char *
 commit_msg_adds(const struct file_change *adds)
 {
 	unsigned int count;
+	const struct rcs_patch *patch;
 	const struct file_change *a;
 	char *msg;
 
@@ -57,6 +66,15 @@ commit_msg_adds(const struct file_change *adds)
 	else
 		msg = sprintf_alloc("Add file %s\n\n", adds->file->name);
 
+	patch = rcs_file_find_patch(adds->file, &adds->newrev, true);
+	if (patch->missing) {
+		if (count > 1)
+			fatal_error("internal error: merged adds with missing "
+				"RCS patches");
+
+		msg = sprintf_alloc_append(msg, "%s\n", msg_missing);
+	}
+
 	for (a = adds; a; a = a->next)
 		msg = sprintf_alloc_append(msg, PREFIX "add %s rev. %s\n",
 			a->file->name, rcs_number_string_sb(&a->newrev));
@@ -72,7 +90,7 @@ commit_msg_updates(const struct file_change *updates)
 	char *msg;
 	const char *log, *label, *pos;
 	char revstr_old[RCS_MAX_REV_LEN], revstr_new[RCS_MAX_REV_LEN];
-	const struct rcs_patch *patch;
+	const struct rcs_patch *patch = NULL; /* Init'd for compiler warning */
 	const struct file_change *u;
 
 	/*
@@ -109,6 +127,10 @@ commit_msg_updates(const struct file_change *updates)
 		log = NULL;
 		for (u = updates; u; u = u->next) {
 			patch = rcs_file_find_patch(u->file, &u->newrev, true);
+			if (patch->missing && (u != updates || u->next))
+				fatal_error("internal error: merged update "
+					"with missing RCS patch");
+
 			if (!log)
 				log = patch->log;
 			else if (strcmp(patch->log, log))
@@ -116,14 +138,21 @@ commit_msg_updates(const struct file_change *updates)
 					"the same in update commit");
 		}
 
-		/*
-		 * If the log message is empty or contains nothing but white
-		 * space, ignore it and auto-generate a message instead.
-		 */
-		for (pos = log; *pos; ++pos)
-			if (!isspace(*pos))
-				break;
-		if (*pos)
+		/* If patch->missing, log might be NULL. */
+		if (log) {
+			/*
+			 * If the log message is empty or contains nothing but
+			 * white space, ignore it and auto-generate a message
+			 * instead.
+			 */
+			for (pos = log; *pos; ++pos)
+				if (!isspace(*pos))
+					break;
+			if (!*pos)
+				log = NULL;
+		}
+
+		if (log)
 			msg = sprintf_alloc("%s\n\n", log);
 		else if (count > 1)
 			msg = sprintf_alloc("Update %u files\n\n", count);
@@ -131,6 +160,9 @@ commit_msg_updates(const struct file_change *updates)
 			msg = sprintf_alloc("Update file %s to rev. %s\n\n",
 				updates->file->name,
 				rcs_number_string_sb(&updates->newrev));
+
+		if (patch->missing)
+			msg = sprintf_alloc_append(msg, "%s\n", msg_missing);
 	}
 
 	for (u = updates; u; u = u->next) {
@@ -232,6 +264,7 @@ merge_adds(const char *branch, struct file_change *add_list)
 	struct file_change *add, *a, **old_prev_next, **new_prev_next;
 	struct git_commit *head, **prev_next, *c;
 	const struct rcs_version *ver, *add_ver;
+	const struct rcs_patch *add_patch;
 
 	/*
 	 * Batch all adds with the same author into the same commit.  Added
@@ -256,36 +289,48 @@ merge_adds(const char *branch, struct file_change *add_list)
 		for (a = add_list; a; a = a->next) {
 			add_ver = rcs_file_find_version(a->file, &a->newrev,
 				true);
-			if (!strcasecmp(add_ver->author, ver->author)) {
-				/* Append this add to the commit. */
-				*new_prev_next = a;
-				new_prev_next = &a->next;
+			add_patch = rcs_file_find_patch(a->file, &a->newrev,
+				true);
 
-				/* Remove from the old list. */
-				*old_prev_next = a->next;
-
-				/*
-				 * Use the file revision with the newest date as
-				 * the commit timestamp.
-				 *
-				 * Note: MKSSI stores the mtime of the file
-				 * being added as the revision timestamp, which
-				 * can differ considerably from when the user
-				 * added the file to the project.  For example,
-				 * a file last modified several years ago will,
-				 * when added to the project, have a revision
-				 * timestamp from several years ago.  We use
-				 * this timestamp anyway, for lack of a better
-				 * alternative.
-				 */
-				c->date = max(c->date, add_ver->date.value);
-			} else
+			/*
+			 * Should this add *not* be merged?  Adds based on
+			 * corrupt RCS patches are never merged.  More
+			 * typically, adds from different authors are not
+			 * merged.
+			 */
+			if (add_patch->missing ||
+			 strcasecmp(add_ver->author, ver->author)) {
 				/*
 				 * Save the next pointer, so that if the next
 				 * add has the same author, it can be removed
 				 * from the original list.
 				 */
 				old_prev_next = &a->next;
+
+				continue; /* don't merge */
+			}
+
+			/* Append this add to the commit. */
+			*new_prev_next = a;
+			new_prev_next = &a->next;
+
+			/* Remove from the old list. */
+			*old_prev_next = a->next;
+
+			/*
+			 * Use the file revision with the newest date as the
+			 * commit timestamp.
+			 *
+			 * Note: MKSSI stores the mtime of the file being added
+			 * as the revision timestamp, which can differ
+			 * considerably from when the user added the file to the
+			 * project.  For example, a file last modified several
+			 * years ago will, when added to the project, have a
+			 * revision timestamp from several years ago.  We use
+			 * this timestamp anyway, for lack of a better
+			 * alternative.
+			 */
+			c->date = max(c->date, add_ver->date.value);
 		}
 		*new_prev_next = NULL;
 
@@ -316,6 +361,10 @@ merge_matching_updates(struct file_change *merge_head,
 		true);
 
 	merge_head->next = NULL;
+
+	/* An update based on a missing RCS patch matches nothing. */
+	if (patch->missing)
+		return;
 
 	/* Search for updates sharing an author and comment */
 	unmerged_prev_next = unmerged_head;
@@ -353,6 +402,10 @@ merge_matching_updates(struct file_change *merge_head,
 			&unmerged->newrev, true);
 		upd_patch = rcs_file_find_patch(unmerged->file,
 			&unmerged->newrev, true);
+
+		/* Don't merge updates when the RCS patch is missing. */
+		if (upd_patch->missing)
+			goto not_match;
 
 		if (!strcasecmp(upd_ver->author, ver->author)
 		 && !strcmp(upd_patch->log, patch->log)) {

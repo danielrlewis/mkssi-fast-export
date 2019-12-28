@@ -180,8 +180,10 @@ static struct rcs_patch_buffer *new_patch_buf(const struct rcs_file *file,
 	pbuf = xcalloc(1, sizeof *pbuf, __func__);
 	pbuf->ver = rcs_file_find_version(file, revnum, true);
 	pbuf->patch = rcs_file_find_patch(file, revnum, true);
-	pbuf->text = read_patch_text(file, pbuf->patch);
-	pbuf->lines = string_to_lines(pbuf->text);
+	if (!pbuf->patch->missing) {
+		pbuf->text = read_patch_text(file, pbuf->patch);
+		pbuf->lines = string_to_lines(pbuf->text);
+	}
 	return pbuf;
 }
 
@@ -240,39 +242,32 @@ free_patch_buffers(struct rcs_patch_buffer *patches)
 
 		/* Free the patch text and lines */
 		lines_free(p->lines);
-		free(p->text);
+		if (p->text)
+			free(p->text);
 
 		pparent = p->parent;
 		free(p);
 	}
 }
 
-/* pass file revision data to the callback */
+/* pass file revision data to the callback*/
 static void
-emit_revision(rcs_revision_data_handler_t *callback,
+emit_revision_data(rcs_revision_data_handler_t *callback,
 	struct rcs_file *file, const struct rcs_version *ver,
-	const struct rcs_patch *patch, const struct rcs_line *data_lines)
+	const struct rcs_patch *patch, const struct rcs_line *data_lines,
+	bool has_member_type_other)
 {
 	struct rcs_line *data_lines_expanded;
 	char *data;
 
 	/*
-	 * Rare special case: for text files with member type "other", MKSSI
-	 * seems to grab rev. 1.1 without doing keyword expansion, so we need
-	 * to export a special version without expanding keywords.  Assuming
-	 * that "@@" characters still need to be un-escaped.
-	 *
-	 * Still need to export this rev. 1.1 with keyword expansion afterward,
-	 * because it might also be needed as a normal member type "archive".
+	 * If the patch (or any of its antecedants) was missing from the RCS
+	 * file, emit an empty revision.  This emulates how MKSSI handles
+	 * RCS files that are corrupt in this manner.
 	 */
-	if (file->has_member_type_other && !file->binary && ver->number.c == 2
-	 && ver->number.n[0] == 1 && ver->number.n[1] == 1) {
-	 	data_lines_expanded = lines_copy(data_lines);
-	 	rcs_data_unescape_ats(data_lines_expanded);
-		data = lines_to_string(data_lines_expanded);
-		callback(file, &ver->number, data, true);
-		free(data);
-		lines_free(data_lines_expanded);
+	if (patch->missing) {
+		callback(file, &ver->number, "", has_member_type_other);
+		return;
 	}
 
 	/*
@@ -281,15 +276,46 @@ emit_revision(rcs_revision_data_handler_t *callback,
 	 * so make a copy for the expansion.
 	 */
 	data_lines_expanded = lines_copy(data_lines);
-	rcs_data_keyword_expansion(file, ver, patch, data_lines_expanded);
+
+	/*
+	 * No keyword expansion for "other" member types, but it is assumed (not
+	 * much data) that "@@" characters still need to be un-escaped.
+	 */
+	if (has_member_type_other)
+		rcs_data_unescape_ats(data_lines_expanded);
+	else
+		rcs_data_keyword_expansion(file, ver, patch,
+			data_lines_expanded);
 
 	/* Convert the data lines into a string and pass to the callback */
 	data = lines_to_string(data_lines_expanded);
-	callback(file, &ver->number, data, false);
+	callback(file, &ver->number, data, has_member_type_other);
 	free(data);
 
 	/* Free the copied data lines */
 	lines_free(data_lines_expanded);
+}
+
+/* pass file revision data(s) to the callback */
+static void
+emit_revision(rcs_revision_data_handler_t *callback,
+	struct rcs_file *file, const struct rcs_version *ver,
+	const struct rcs_patch *patch, const struct rcs_line *data_lines)
+{
+	/*
+	 * Rare special case: for text files with member type "other", MKSSI
+	 * seems to grab rev. 1.1 without doing keyword expansion, so we need
+	 * to export a special version without expanding keywords.
+	 *
+	 * Still need to export this rev. 1.1 with keyword expansion afterward,
+	 * because it might also be needed as a normal member type "archive".
+	 */
+	if (file->has_member_type_other && !file->binary && ver->number.c == 2
+	 && ver->number.n[0] == 1 && ver->number.n[1] == 1)
+		emit_revision_data(callback, file, ver, patch, data_lines,
+			true);
+
+	emit_revision_data(callback, file, ver, patch, data_lines, false);
 }
 
 /* apply patches and pass the resulting revision data to the callback */

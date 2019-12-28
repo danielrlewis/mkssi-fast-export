@@ -85,6 +85,13 @@ struct rcs_text {
 struct rcs_patch {
 	struct rcs_patch *next;
 
+	/*
+	 * This patch, or one of its antecedents, is missing from the RCS file.
+	 * If log (below) is NULL, the patch itself was missing; otherwise it
+	 * was an antecedent patch.
+	 */
+	bool missing;
+
 	/* RCS metadata */
 	struct rcs_number number;
 	char *log;

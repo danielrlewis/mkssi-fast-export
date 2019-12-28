@@ -36,8 +36,9 @@ struct rcs_binary_patch_buffer {
 	struct rcs_binary_patch_buffer *branches;
 	struct rcs_binary_patch_buffer *branch_next;
 
-	/* RCS version structure (for convenience) */
+	/* RCS version and patch structures (for convenience) */
 	const struct rcs_version *ver;
+	const struct rcs_patch *patch;
 
 	/* Content of the patch */
 	struct binary_data text;
@@ -96,8 +97,10 @@ buffer_delete(struct binary_data *vb, size_t off, size_t len)
 static void
 buffer_copy(const struct binary_data *vb, struct binary_data *vbcopy)
 {
-	vbcopy->buf = xmalloc(vb->len, __func__);
-	memcpy(vbcopy->buf, vb->buf, vb->len);
+	if (vb->buf) {
+		vbcopy->buf = xmalloc(vb->len, __func__);
+		memcpy(vbcopy->buf, vb->buf, vb->len);
+	}
 	vbcopy->len = vbcopy->maxlen = vb->len;
 }
 
@@ -135,11 +138,21 @@ get_offset_length(const unsigned char *buf, size_t *off, size_t *len)
 
 /* patch the preceding revision to yield the new revision */
 static void
-apply_patch(const struct rcs_file *file, const struct rcs_number *revnum,
-	struct binary_data *data, const struct binary_data *patch)
+apply_patch(const struct rcs_file *file, struct rcs_binary_patch_buffer *pbuf,
+	struct binary_data *data)
 {
+	const struct binary_data *patch;
 	size_t i, j, adjust, off, len;
 	unsigned int byte;
+
+	/*
+	 * Can't apply patch if it (or its antecedents) are missing from the RCS
+	 * file.
+	 */
+	if (pbuf->patch->missing)
+		return;
+
+	patch = &pbuf->text;
 
 	/* Run through patch diff and merge changes into data */
 	adjust = 0;
@@ -168,7 +181,7 @@ apply_patch(const struct rcs_file *file, const struct rcs_number *revnum,
 
 error:
 	fprintf(stderr, "cannot patch to \"%s\" rev. %s\n", file->name,
-		rcs_number_string_sb(revnum));
+		rcs_number_string_sb(&pbuf->ver->number));
 	fprintf(stderr, "context: ");
 	for (j = i-min(i, 16); j < min(i+16, patch->len); ++j) {
 		byte = patch->buf[j];
@@ -266,15 +279,16 @@ static struct rcs_binary_patch_buffer *new_patch_buf(
 
 	pbuf = xcalloc(1, sizeof *pbuf, __func__);
 	pbuf->ver = rcs_file_find_version(file, revnum, true);
-	pbuf->text = read_patch_text(file,
-		rcs_file_find_patch(file, revnum, true));
+	pbuf->patch = rcs_file_find_patch(file, revnum, true);
+	if (!pbuf->patch->missing) {
+		pbuf->text = read_patch_text(file, pbuf->patch);
 
-	/*
-	 * Double-@@ sequences are counted as a single byte for offsets and
-	 * lengths, so it is better to remove them.
-	 */
-	rcs_binary_data_unescape_ats(&pbuf->text);
-
+		/*
+		 * Double-@@ sequences are counted as a single byte for offsets
+		 * and lengths, so it is better to remove them.
+		 */
+		rcs_binary_data_unescape_ats(&pbuf->text);
+	}
 	return pbuf;
 }
 
@@ -354,7 +368,7 @@ apply_patches_and_emit(rcs_revision_binary_data_handler_t *callback,
 			 * Apply the patch to transmute the previous revision
 			 * data into the data for the current revision.
 			 */
-			apply_patch(file, &p->ver->number, data, &p->text);
+			apply_patch(file, p, data);
 		else
 			/*
 			 * Patch for the head revision is the data for that

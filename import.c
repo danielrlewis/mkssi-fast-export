@@ -58,6 +58,61 @@ is_encrypted_archive(FILE *f)
 	return encrypted;
 }
 
+/* create placeholders for missing patches, starting at the given revision */
+static void
+create_missing_patches_from_rev(struct rcs_file *file,
+	const struct rcs_number *head, bool missing_antecedent)
+{
+	const struct rcs_version *v;
+	struct rcs_patch *p;
+	const struct rcs_branch *b;
+	struct rcs_number n;
+
+	/* Loop through the file's revisions, from newest to oldest. */
+	for (n = *head; n.c; n = v->parent) {
+		v = rcs_file_find_version(file, &n, true);
+		p = rcs_file_find_patch(file, &n, false);
+		if (!p) {
+			fprintf(stderr, "warning: \"%s\" missing patch for "
+				"rev. %s\n", file->master_name,
+				rcs_number_string_sb(&n));
+
+			/*
+			 * If this patch is missing, any branches or ancestors
+			 * have to be treated as missing.  RCS patches are
+			 * applied in sequence, so it's impossible to recover
+			 * the contents of a revision if any of the antecedent
+			 * patches are missing.
+			 */
+			missing_antecedent = true;
+
+			p = xcalloc(1, sizeof *p, __func__);
+			p->number = n;
+
+			/*
+			 * The patches list isn't sorted, so for convenience
+			 * just add the patch at the front of the list.
+			 */
+			p->next = file->patches;
+			file->patches = p;
+		}
+
+		p->missing = missing_antecedent;
+
+		/* Recursively handle any branches from this revision. */
+		for (b = v->branches; b; b = b->next)
+			create_missing_patches_from_rev(file, &b->number,
+				missing_antecedent);
+	}
+}
+
+/* create placeholders for any patches missing from the RCS file */
+static void
+create_missing_patches(struct rcs_file *file)
+{
+	create_missing_patches_from_rev(file, &file->head, false);
+}
+
 /* import an RCS master file into memory */
 static struct rcs_file *
 import_rcs_file(const char *relative_path)
@@ -127,7 +182,8 @@ retry:
 				file->master_name);
 		else
 			fatal_error("yyparse aborted with unexpected error");
-	}
+	} else
+		create_missing_patches(file);
 
 out:
 	fclose(in);

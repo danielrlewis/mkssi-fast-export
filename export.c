@@ -146,6 +146,10 @@ has_script_extension(const char *path)
 static bool
 looks_like_executable(const struct rcs_file *file, const char *data)
 {
+	/* Corrupted revisions are not executable. */
+	if (!data)
+		return false;
+
 	/* anything starting with a shebang is assumed to be a script */
 	if (data[0] == '#' && data[1] == '!')
 		return true;
@@ -171,6 +175,28 @@ looks_like_executable(const struct rcs_file *file, const char *data)
 	return false;
 }
 
+/* export a blob to the packfile; not connected to any commit */
+static void
+export_blob(const void *data, size_t datalen)
+{
+	/*
+	 * Each blob is given a unique mark number.  Later when committing file
+	 * modifications, we refer back to the data blob we want by its mark.
+	 */
+	printf("blob\n");
+	printf("mark :%lu\n", ++blob_mark_counter);
+	printf("data %zu\n", datalen);
+	if (data && datalen)
+		fwrite(data, 1, datalen, stdout);
+
+	/*
+	 * git-fast-import(1): "The LF ... is optional ... but recommended.
+	 * Always including it makes debugging a fast-import stream easier as
+	 * the next command always starts in column 0 of the next line."
+	 */
+	putchar('\n');
+}
+
 /* export a blob for the given file revision data */
 static void
 export_revision_blob(struct rcs_file *file, const struct rcs_number *revnum,
@@ -185,14 +211,7 @@ export_revision_blob(struct rcs_file *file, const struct rcs_number *revnum,
 	printf("# %s rev. %s%s\n", file->name, rcs_number_string_sb(revnum),
 		member_type_other ? " (no keyword expansion)" : "");
 
-	/*
-	 * Each blob is given a unique mark number.  Later when committing file
-	 * modifications, we refer back to the data blob we want by its mark.
-	 */
-	printf("blob\n");
-	printf("mark :%lu\n", ++blob_mark_counter);
-	printf("data %zu\n", strlen(data));
-	printf("%s\n", data);
+	export_blob(data, strlen(data));
 
 	ver = rcs_file_find_version(file, revnum, true);
 	ver->executable = looks_like_executable(file, data);
@@ -218,15 +237,7 @@ export_binary_revision_blob(struct rcs_file *file,
 	 */
 	printf("# %s rev. %s\n", file->name, rcs_number_string_sb(revnum));
 
-	/*
-	 * Each blob is given a unique mark number.  Later when committing file
-	 * modifications, we refer back to the data blob we want by its mark.
-	 */
-	printf("blob\n");
-	printf("mark :%lu\n", ++blob_mark_counter);
-	printf("data %zu\n", datalen);
-	fwrite(data, 1, datalen, stdout);
-	putchar('\n');
+	export_blob(data, datalen);
 
 	ver = rcs_file_find_version(file, revnum, true);
 	ver->blob_mark = blob_mark_counter; /* Save the mark */
