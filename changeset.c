@@ -100,6 +100,7 @@ find_implicit_dir_renames(const struct rcs_file_revision *old,
 {
 	const struct rcs_file_revision *o, *n;
 	struct file_change *rename, *head;
+	const struct file_change *r;
 	struct dir_path *old_dirs, *new_dirs, *path_dirs, *od, *nd;
 	const char *oname, *nname;
 	char *path;
@@ -170,6 +171,29 @@ find_implicit_dir_renames(const struct rcs_file_revision *old,
 				path[nd->len-1] = '\0';
 				rename->canonical_name = path;
 
+				/*
+				 * We must go deeper.  If this rename occurs in
+				 * a directory that is *also* being renamed,
+				 * then this rename needs to use the new name of
+				 * the renamed directory.
+				 *
+				 * This is dependent on sort order.  The
+				 * directory lists are sorted by name and later
+				 * the rename list is also sorted by name.
+				 */
+				for (r = head; r; r = r->next)
+					if (!strncmp(rename->old_canonical_name,
+					 r->old_canonical_name,
+					 strlen(r->old_canonical_name)))
+						memcpy((char *)rename->old_canonical_name,
+							r->canonical_name,
+							strlen(r->canonical_name));
+
+				/*
+				 * Insert the new rename at the head of the
+				 * list.  Note that the list is later resorted
+				 * by name.
+				 */
 				rename->next = head;
 				head = rename;
 			}
