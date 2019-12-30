@@ -151,8 +151,16 @@ find_implicit_dir_renames(const struct rcs_file_revision *old,
 				rename = xcalloc(1, sizeof *rename, __func__);
 
 				/*
-				 * TODO: These memory allocated for these paths
-				 * is leaked; it is needed only briefly but is
+				 * Note that rename->file is left as NULL.
+				 * Directories don't have RCS files, so there
+				 * would be nothing to point at.  Later on we
+				 * use file == NULL as an indicator that the
+				 * rename is for a directory.
+				 */
+
+				/*
+				 * TODO: The memory allocated for these paths is
+				 * leaked; it is needed only briefly but is
 				 * never freed.  This code path is executed very
 				 * rarely in a typical MKSSI project, so
 				 * overlooking the memory leak for now.
@@ -200,6 +208,94 @@ find_implicit_dir_renames(const struct rcs_file_revision *old,
 
 	dir_list_free(old_dirs);
 	dir_list_free(new_dirs);
+
+	return head;
+}
+
+/* find files whose name capitalization changed */
+static struct file_change *
+find_implicit_file_renames(const struct rcs_file_revision *old,
+	const struct rcs_file_revision *new,
+	const struct file_change *dir_renames)
+{
+	const struct rcs_file_revision *o, *n;
+	struct file_change *rename, *head;
+	const struct file_change *r;
+	const char *opath, *npath, *oname, *nname;
+
+	/*
+	 * Search for files which had their file name capitalization changed.
+	 *
+	 * Not exactly sure how this situation arises.  Only seen in project
+	 * history from the 1990s, so it might have something to do with
+	 * handling of LFN/8.3 names.
+	 */
+	head = NULL;
+	for (o = old; o; o = o->next)
+		for (n = new; n; n = n->next) {
+			opath = oname = o->canonical_name;
+			npath = nname = n->canonical_name;
+			if (strchr(opath, '/'))
+				oname = strrchr(opath, '/') + 1;
+			if (strchr(npath, '/'))
+				nname = strrchr(npath, '/') + 1;
+
+			/*
+			 * Check for paths which are the same, case insensitive,
+			 * but differ in the final component (the file name).
+			 *
+			 * Higher level path components are directories, which
+			 * are handled separately.
+			 */
+			if (!strcasecmp(opath, npath) && strcmp(oname, nname)) {
+				rename = xcalloc(1, sizeof *rename, __func__);
+
+				/*
+				 * Populate the file pointer.  While we don't
+				 * need any of the RCS metadata, having a
+				 * non-NULL file pointer is used later to
+				 * distinguish file renames from directory
+				 * renames.
+				 */
+				rename->file = n->file;
+
+				/*
+				 * TODO: The memory allocated for these paths is
+				 * leaked; it is needed only briefly but is
+				 * never freed.  This code path is executed very
+				 * rarely in a typical MKSSI project, so
+				 * overlooking the memory leak for now.
+				 */
+				rename->old_canonical_name = xstrdup(opath,
+					__func__);
+				rename->canonical_name = xstrdup(npath,
+					__func__);
+
+				/*
+				 * We must go deeper.  If this rename occurs in
+				 * a directory that is *also* being renamed,
+				 * then this rename needs to use the new name of
+				 * the renamed directory.
+				 *
+				 * This assumes that directory renames are
+				 * committed prior to file renames.
+				 */
+				for (r = dir_renames; r; r = r->next)
+					if (!strncmp(opath, r->old_canonical_name,
+					 strlen(r->old_canonical_name)))
+						memcpy((char *)rename->old_canonical_name,
+							r->canonical_name,
+							strlen(r->canonical_name));
+
+				/*
+				 * Insert the new rename at the head of the
+				 * list.  Note that the list is later resorted
+				 * by name.
+				 */
+				rename->next = head;
+				head = rename;
+			}
+		}
 
 	return head;
 }
@@ -404,6 +500,39 @@ remove_nonexistent_file_revisions(struct file_change *changes)
 	return changes;
 }
 
+/* adjust delete paths for renames */
+static void
+adjust_deletes_for_renames(const struct file_change *renames,
+	struct file_change *deletes)
+{
+	const struct file_change *r;
+	struct file_change *d;
+	char *path;
+
+	/*
+	 * Renames are committed prior to deletions.  However, deletions use the
+	 * old pre-rename path: deletions are inferred from the absence of a
+	 * file that was previously listed, and the path comes from the old
+	 * listing.  This isn't necessary for adds/updates, where the paths are
+	 * from the new version of the project file.
+	 */
+	for (d = deletes; d; d = d->next)
+		for (r = renames; r; r = r->next)
+			if (!strncmp(d->canonical_name, r->old_canonical_name,
+			 strlen(r->old_canonical_name))) {
+				/*
+				 * TODO: This memory is leaked.  Overlooking
+				 * for now, since this code runs rarely in a
+				 * typical MKSSI project.
+				 */
+				path = xstrdup(d->canonical_name, __func__);
+				memcpy(path, r->canonical_name,
+					strlen(r->canonical_name));
+				d->canonical_name = path;
+			}
+
+}
+
 /* compare two changes by name for sorting purposes */
 static int
 compare_by_name(const struct file_change *a, const struct file_change *b)
@@ -487,9 +616,11 @@ changeset_build(const struct rcs_file_revision *old, time_t old_date,
 	const struct rcs_file_revision *new, time_t new_date,
 	struct file_change_lists *changes)
 {
-	struct file_change *extra_updates;
+	struct file_change *extra_updates, *dir_renames, *file_renames;
 
-	changes->renames = find_implicit_dir_renames(old, new);
+	dir_renames = find_implicit_dir_renames(old, new);
+	file_renames = find_implicit_file_renames(old, new, dir_renames);
+
 	changes->adds = find_adds(old, new);
 	changes->updates = find_updates(old, new);
 	changes->deletes = find_deletes(old, new);
@@ -506,7 +637,17 @@ changeset_build(const struct rcs_file_revision *old, time_t old_date,
 	changes->adds = remove_nonexistent_file_revisions(changes->adds);
 	changes->updates = remove_nonexistent_file_revisions(changes->updates);
 
-	changes->renames = sort_changes(changes->renames, compare_by_name);
+	/*
+	 * Code elsewhere assumes that directory renames will occur prior to
+	 * file renames.
+	 */
+	dir_renames = sort_changes(dir_renames, compare_by_name);
+	file_renames = sort_changes(file_renames, compare_by_name);
+	changes->renames = dir_renames;
+	change_list_append(&changes->renames, file_renames);
+
+	adjust_deletes_for_renames(changes->renames, changes->deletes);
+
 	changes->adds = sort_changes(changes->adds, compare_by_date);
 	changes->updates = sort_changes(changes->updates, compare_by_date);
 	changes->updates = sort_changes(changes->updates, compare_by_rev);

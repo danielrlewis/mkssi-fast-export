@@ -12,15 +12,6 @@
  */
 #define PREFIX "#mkssi: "
 
-/*
- * Used for deleted and reverted files, since MKSSI saves no authorship for
- * such events.
- */
-static const struct git_author unknown_author = {
-	.name = "Unknown",
-	.email = "unknown"
-};
-
 /* Commit messages note for revisions dependent on missing RCS patches. */
 static const char msg_missing[] = "\
 (Note: This commit represents a file revision whose contents have been lost due\n\
@@ -208,25 +199,73 @@ commit_msg_deletes(const struct file_change *deletes)
 	return msg;
 }
 
-/* merge all renames into a single rename commit */
+/* merge renames of the same type: for a file or for a directory */
+static struct git_commit *
+merge_renames_sub(const char *branch, struct file_change **renames,
+	time_t cp_date, const char *commit_message, bool directory)
+{
+	struct git_commit *c;
+	struct file_change *r, *rnext, **list_prev, **commit_prev;
+
+	c = xcalloc(1, sizeof *c, __func__);
+	c->branch = branch;
+	c->committer = &tool_author;
+	c->date = cp_date;
+	c->commit_msg = xstrdup(commit_message, __func__);
+
+	list_prev = renames;
+	commit_prev = &c->changes.renames;
+	for (r = *list_prev; r; r = rnext) {
+		rnext = r->next;
+
+		/*
+		 * The file pointer is NULL for directories and non-NULL for
+		 * files.
+		 */
+		if (!r->file == directory) {
+			/* Remove r from renames list */
+			*list_prev = r->next;
+			r->next = NULL;
+
+			/* Add r to c->changes.renames list */
+			*commit_prev = r;
+			commit_prev = &r->next;
+		} else
+			list_prev = &r->next;
+	}
+
+	if (!c->changes.renames) {
+		/* No renames, no commit */
+		free(c->commit_msg);
+		free(c);
+		c = NULL;
+	}
+	return c;
+}
+
+/* merge renames into rename commits */
 static struct git_commit *
 merge_renames(const char *branch, struct file_change *renames, time_t cp_date)
 {
-	struct git_commit *c;
-	static const char msg[] =
-"Implicit MKSSI directory rename\n\
+	struct git_commit *cdir, *cfile;
+	static const char msg_dir[] =
+"Implicit rename to change directory name capitalization\n\
 \n\
-This commit has been automatically generated to handle an MKSSI edge-case\n\
-involving the capitalization of directory names.\n\
+This commit has been automatically generated to represent an implicit change to\n\
+the capitalization of a directory name within the MKSSI project.  Git (unlike\n\
+MKSSI) is case sensitive; changing directory name capitalization requires\n\
+renaming the files within that directory.\n\
 \n\
-MKSSI is case-insensitive and may list a directory name with different\n\
-capitalization variants, for example \"FooBar/a.txt\" and \"foobar/b.txt\".  On\n\
-the Windows operating system, which has file systems that are case-insensitive\n\
-but case-preserving, the capitalization variant which is listed first is the\n\
-one that will show up when checking out the sandbox.\n\
+In MKSSI, project directories are inferred from the paths in the project file\n\
+listing.  A directory name can be listed with different capitalization variants,\n\
+for example \"FooBar/a.txt\" and \"foobar/b.txt\".  On the Windows operating\n\
+system, which has file systems that are case-insensitive but case-preserving,\n\
+the capitalization variant which is listed first is the one that will show up\n\
+when checking out a sandbox for the project.\n\
 \n\
-The edge-case arises when the first-listed capitalization variant changes over\n\
-time, due to added or deleted files.  Thus if the file list is as follows:\n\
+One way that an implicit directory rename can occur is when the first-listed\n\
+capitalization variant changes over time, due to added or deleted files.  Thus\n\
+if the file list is as follows:\n\
 \n\
 	FooBar/a.txt\n\
 	foobar/b.txt\n\
@@ -240,21 +279,33 @@ Then the MKSSI directory will be \"FooBar\".  But if a new file is added:\n\
 Then the MKSSI directory will be \"foobar\".  Git is case-sensitive, so to\n\
 emulate the MKSSI behavior, the directory must be renamed in such cases.\n\
 ";
+	static const char msg_file[] =
+"Implicit rename to change file name capitalization\n\
+\n\
+This commit has been automatically generated to represent an implicit change to\n\
+the capitalization of a file name within the MKSSI project.  Git (unlike MKSSI)\n\
+is case-sensitive; changing file name capitalization requires renaming the file.\n\
+";
 
 	if (!renames)
 		return NULL;
 
 	/*
 	 * MKSSI does not have rename operations; these renames are for implicit
-	 * directory name capitalization changes.
+	 * directory and file name capitalization changes.
 	 */
-	c = xcalloc(1, sizeof *c, __func__);
-	c->branch = branch;
-	c->committer = &unknown_author;
-	c->date = cp_date;
-	c->commit_msg = xstrdup(msg, __func__);
-	c->changes.renames = renames;
-	return c;
+
+	cdir = merge_renames_sub(branch, &renames, cp_date, msg_dir, true);
+	cfile = merge_renames_sub(branch, &renames, cp_date, msg_file, false);
+
+	/*
+	 * If there are both directory and file renames, the directory renames
+	 * must occur first.
+	 */
+	if (cdir && cfile)
+		cdir->next = cfile;
+
+	return cdir ? cdir : cfile;
 }
 
 /* merge adds into commits */

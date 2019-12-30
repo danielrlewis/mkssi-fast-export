@@ -8,6 +8,22 @@
 #include <string.h>
 #include "interfaces.h"
 
+/*
+ * Used for deleted and reverted files, since MKSSI saves no authorship for
+ * such events.
+ */
+const struct git_author unknown_author = {
+	.name = "Unknown",
+	.email = "unknown"
+};
+
+/* Used for automatically generated commits/tags */
+const struct git_author tool_author = {
+	.name = "mkssi-fast-export",
+	.email = "none"
+};
+
+
 /* map from an RCS author username to a Git author identity */
 struct author_map {
 	struct author_map *next;

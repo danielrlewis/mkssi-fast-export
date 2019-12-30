@@ -374,7 +374,7 @@ by mkssi-fast-export into Git via git-fast-import(1).\n\
 
 	printf("tag %s\n", tag);
 	printf("from refs/heads/%s\n", branch);
-	printf("tagger %s <%s> %lu %s\n", "mkssi-fast-export", "none",
+	printf("tagger %s <%s> %lu %s\n", tool_author.name, tool_author.email,
 		(unsigned long)time(NULL), TIMEZONE);
 	printf("data %zu\n", strlen(msg));
 	printf("%s\n", msg);

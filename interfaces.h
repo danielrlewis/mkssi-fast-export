@@ -278,6 +278,8 @@ char *rcs_number_string(const struct rcs_number *n, char *str, size_t maxlen);
 const char *rcs_number_string_sb(const struct rcs_number *n);
 
 /* authors.c */
+extern const struct git_author unknown_author;
+extern const struct git_author tool_author;
 void author_map_initialize(const char *author_map_path);
 const struct git_author *author_map(const char *author);
 void dump_unmapped_authors(void);
