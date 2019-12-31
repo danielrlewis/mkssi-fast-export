@@ -44,6 +44,22 @@ string_to_lines(char *str)
 			ln->no_newline = true;
 	}
 	*prev_next = NULL;
+
+	/*
+	 * If str was a zero-length string (an empty RCS patch), the lines list
+	 * will be NULL.
+	 */
+	if (!head) {
+		/*
+		 * Some of the callers of this function want a non-NULL list in
+		 * all cases, so allocate an empty line.
+		 */
+		head = xcalloc(1, sizeof *head, __func__);
+		head->lineno = lineno;
+		head->line = lnptr;
+		head->no_newline = true;
+	}
+
 	return head;
 }
 
