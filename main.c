@@ -36,7 +36,7 @@ usage(const char *name, bool error)
 		status = 0;
 	}
 
-	fprintf(f, "usage: %s [options] mkssi_rcs_dir\n", name);
+	fprintf(f, "usage: %s [options]\n", name);
 	fprintf(f, "Fast-export history from an MKSSI (v7.5a) repository.\n\n");
 	fprintf(f, "The following options are supported:\n");
 	fprintf(f, "  -p --proj-dir=path  Path to MKSSI project directory.\n");
@@ -212,8 +212,14 @@ main(int argc, char *argv[])
 	}
 
 	/* There should be exactly no arguments after the options. */
-	if (argc != optind)
+	if (argc != optind) {
+		fprintf(stderr, "unrecognized arguments on command line:\n");
+		for (; optind < argc; optind++)
+			fprintf(stderr, "\t\"%s\"\n", argv[optind]);
+		fprintf(stderr, "\n");
+
 		usage(argv[0], true);
+	}
 
 	/* RCS directory is a mandatory argument. */
 	if (!mkssi_rcs_dir_path) {
