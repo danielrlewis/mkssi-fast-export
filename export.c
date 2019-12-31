@@ -30,11 +30,11 @@ pjrev_find_checkpoint(const struct rcs_number *pjrev)
 }
 
 /* find a branch (optionally after another branch) by project revision number */
-static const struct mkssi_branch *
+static struct mkssi_branch *
 pjrev_find_branch_after(const struct rcs_number *pjrev,
 	const struct mkssi_branch *prev_branch)
 {
-	const struct mkssi_branch *b;
+	struct mkssi_branch *b;
 
 	/* Trunk project revisions go on the trunk, unless... */
 	if (rcs_number_is_trunk(pjrev)) {
@@ -92,7 +92,7 @@ pjrev_find_branch_after(const struct rcs_number *pjrev,
 }
 
 /* find a branch by project revision number */
-static const struct mkssi_branch *
+static struct mkssi_branch *
 pjrev_find_branch(const struct rcs_number *pjrev)
 {
 	return pjrev_find_branch_after(pjrev, NULL);
@@ -437,12 +437,12 @@ get_commit_list(const struct mkssi_branch *branch,
 /* export all changes from a given project revision onto branch */
 static void
 export_project_revision_changes_onto_branch(const struct rcs_number *pjrev_old,
-	const struct rcs_number *pjrev_new, const struct mkssi_branch *branch,
+	const struct rcs_number *pjrev_new, struct mkssi_branch *branch,
 	const char *tagname)
 {
 	struct git_commit *commits;
 	const struct git_commit *c;
-	const struct mkssi_branch *b;
+	struct mkssi_branch *b;
 
 	export_progress("exporting project rev. %s "
 		"(branch=%s tag=%s)\n",
@@ -451,8 +451,10 @@ export_project_revision_changes_onto_branch(const struct rcs_number *pjrev_old,
 
 	/* Build a list of commits and export them. */
 	commits = get_commit_list(branch, pjrev_old, pjrev_new);
-	for (c = commits; c; c = c->next)
+	for (c = commits; c; c = c->next) {
 		export_commit(c);
+		branch->ncommit++;
+	}
 	free_commits(commits);
 
 	/* The tip has no derived branches or checkpoint. */
@@ -465,8 +467,10 @@ export_project_revision_changes_onto_branch(const struct rcs_number *pjrev_old,
 	 */
 	for (b = project_branches; b; b = b->next)
 		if (rcs_number_equal(&b->number, pjrev_new)
-		 && strcmp(b->branch_name, "master"))
+		 && strcmp(b->branch_name, "master")) {
 			export_branchpoint(branch->branch_name, b->branch_name);
+			b->ncommit = branch->ncommit;
+		}
 
 	/* Create a tag to represent a named checkpoint */
 	if (tagname)
@@ -479,7 +483,7 @@ export_project_revision_changes(const struct rcs_number *pjrev_old,
 	const struct rcs_number *pjrev_new)
 {
 	const struct rcs_number *pjrev_branch;
-	const struct mkssi_branch *branch;
+	struct mkssi_branch *branch;
 	const char *cpname;
 	char *tagname;
 	unsigned bcount;
@@ -560,7 +564,7 @@ export_project_branch_changes(const struct rcs_number *pjrev_start,
 	const struct rcs_branch *b;
 	const struct rcs_version *bver;
 	struct rcs_number pjrev_branch_new, pjrev_branch_old;
-	const struct mkssi_branch *mb;
+	struct mkssi_branch *mb;
 
 	pjrev_branch_old = *pjrev_start;
 	for (b = branches; b; b = b->next) {
@@ -668,11 +672,36 @@ export_demarcating_tags(void)
 
 	export_progress("exporting demarcating tags");
 
+	for (b = project_branches; b; b = b->next) {
+		/*
+		 * Skip MKSSI branches which don't have Git branches.  Note that
+		 * the master branch always has a Git branch.
+		 */
+		if (!pjrev_find_branch(&b->number)
+		 && strcmp(b->branch_name, "master"))
+			continue;
+
+		/*
+		 * Skip MKSSI branches which have zero commits: they don't
+		 * really exist, so tagging them will fail.  Empty branches are
+		 * usually only seen in fresh MKSSI projects with no history.
+		 */
+		if (!b->ncommit)
+			continue;
+
+		export_demarcating_tag(b->branch_name);
+	}
+}
+
+/* display interesting statistics */
+static void
+export_statistics(void)
+{
+	const struct mkssi_branch *b;
+
 	for (b = project_branches; b; b = b->next)
-		/* Skip MKSSI branches which don't have Git branches. */
-		if (pjrev_find_branch(&b->number)
-		 || !strcmp(b->branch_name, "master"))
-			export_demarcating_tag(b->branch_name);
+		export_progress("exported %lu commits to branch %s\n",
+			b->ncommit, b->branch_name);
 }
 
 /* export a stream of git fast-import commands */
@@ -706,4 +735,7 @@ export(void)
 	 * made via Git.
 	 */
 	export_demarcating_tags();
+
+	/* Displays statistics, nothing actually "exported" */
+	export_statistics();
 }

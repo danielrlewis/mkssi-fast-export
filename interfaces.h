@@ -44,6 +44,7 @@ struct mkssi_branch {
 	time_t mtime;  /* mtime of *.pj file */
 	struct rcs_number number; /* project revision number for branch */
 	const struct rcs_file_revision *tip_frevs; /* file revisions for tip */
+	unsigned long ncommit; /* # of commits on this branch */
 };
 
 /* an RCS branch revision */
