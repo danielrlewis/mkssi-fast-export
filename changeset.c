@@ -93,6 +93,53 @@ find_deletes(const struct rcs_file_revision *old,
 	return head;
 }
 
+/* is dirpath a parent directory of path? */
+static bool
+is_parent_dir(const char *dirpath, const char *path)
+{
+	size_t dlen;
+
+	dlen = strlen(dirpath);
+	return !strncasecmp(path, dirpath, dlen) && path[dlen] == '/';
+}
+
+/* update rename path to account for parent directory renames */
+static void
+apply_parent_dir_renames_to_rename(struct file_change *rename,
+	const struct file_change *dir_renames)
+{
+	const struct file_change *r, *rlong;
+
+	/*
+	 * If the given rename occurs in a directory that is *also* being
+	 * renamed, then this rename needs to use the new name of the renamed
+	 * directory.  The new name is already being used in the new path, but
+	 * it needs to be used in the old path, too.
+	 *
+	 * If more than one of the parent directories is being renamed, use the
+	 * longest match, which includes all the renamed directories.
+	 */
+	rlong = NULL;
+	for (r = dir_renames; r; r = r->next)
+		if (is_parent_dir(r->old_canonical_name,
+		 rename->old_canonical_name) &&
+		 (!rlong || strlen(r->canonical_name) >
+		 strlen(rlong->canonical_name)))
+			rlong = r;
+
+	/*
+	 * If there is a renamed parent directory, update the old path to
+	 * account for that prior rename.
+	 *
+	 * TODO: rename->old_canonical_name is const-qualified, but we're
+	 * ignoring that because we know it was just allocated...
+	 */
+	if (rlong)
+		memcpy((char *)rename->old_canonical_name,
+			rlong->canonical_name,
+			strlen(rlong->canonical_name));
+}
+
 /* find directories that were implicitly renamed by added/deleted files */
 static struct file_change *
 find_implicit_dir_renames(const struct rcs_file_revision *old,
@@ -100,7 +147,6 @@ find_implicit_dir_renames(const struct rcs_file_revision *old,
 {
 	const struct rcs_file_revision *o, *n;
 	struct file_change *rename, *head;
-	const struct file_change *r;
 	struct dir_path *old_dirs, *new_dirs, *path_dirs, *od, *nd;
 	const char *oname, *nname;
 	char *path;
@@ -180,22 +226,16 @@ find_implicit_dir_renames(const struct rcs_file_revision *old,
 				rename->canonical_name = path;
 
 				/*
-				 * We must go deeper.  If this rename occurs in
-				 * a directory that is *also* being renamed,
-				 * then this rename needs to use the new name of
-				 * the renamed directory.
+				 * If the old path references a parent directory
+				 * that is also being renamed, we need to
+				 * account for that.
 				 *
 				 * This is dependent on sort order.  The
 				 * directory lists are sorted by name and later
 				 * the rename list is also sorted by name.
 				 */
-				for (r = head; r; r = r->next)
-					if (!strncmp(rename->old_canonical_name,
-					 r->old_canonical_name,
-					 strlen(r->old_canonical_name)))
-						memcpy((char *)rename->old_canonical_name,
-							r->canonical_name,
-							strlen(r->canonical_name));
+				apply_parent_dir_renames_to_rename(
+					rename, head);
 
 				/*
 				 * Insert the new rename at the head of the
@@ -220,7 +260,6 @@ find_implicit_file_renames(const struct rcs_file_revision *old,
 {
 	const struct rcs_file_revision *o, *n;
 	struct file_change *rename, *head;
-	const struct file_change *r;
 	const char *opath, *npath, *oname, *nname;
 
 	/*
@@ -272,20 +311,15 @@ find_implicit_file_renames(const struct rcs_file_revision *old,
 					__func__);
 
 				/*
-				 * We must go deeper.  If this rename occurs in
-				 * a directory that is *also* being renamed,
-				 * then this rename needs to use the new name of
-				 * the renamed directory.
+				 * If the old path references a parent directory
+				 * that is also being renamed, we need to
+				 * account for that.
 				 *
 				 * This assumes that directory renames are
 				 * committed prior to file renames.
 				 */
-				for (r = dir_renames; r; r = r->next)
-					if (!strncmp(opath, r->old_canonical_name,
-					 strlen(r->old_canonical_name)))
-						memcpy((char *)rename->old_canonical_name,
-							r->canonical_name,
-							strlen(r->canonical_name));
+				apply_parent_dir_renames_to_rename(
+					rename, dir_renames);
 
 				/*
 				 * Insert the new rename at the head of the
