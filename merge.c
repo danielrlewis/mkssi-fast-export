@@ -315,7 +315,7 @@ merge_adds(const char *branch, struct file_change *add_list)
 	struct file_change *add, *a, **old_prev_next, **new_prev_next;
 	struct git_commit *head, **prev_next, *c;
 	const struct rcs_version *ver, *add_ver;
-	const struct rcs_patch *add_patch;
+	const struct rcs_patch *patch, *add_patch;
 
 	/*
 	 * Batch all adds with the same author into the same commit.  Added
@@ -328,6 +328,7 @@ merge_adds(const char *branch, struct file_change *add_list)
 		add_list = add->next;
 
 		ver = rcs_file_find_version(add->file, &add->newrev, true);
+		patch = rcs_file_find_patch(add->file, &add->newrev, true);
 
 		c = xcalloc(1, sizeof *c, __func__);
 		c->branch = branch;
@@ -337,6 +338,14 @@ merge_adds(const char *branch, struct file_change *add_list)
 
 		old_prev_next = &add_list;
 		new_prev_next = &add->next;
+
+		/*
+		 * If the file to be added has no RCS patch, don't merge it with
+		 * any other added files.
+		 */
+		if (patch->missing)
+			goto skip_merge;
+
 		for (a = add_list; a; a = a->next) {
 			add_ver = rcs_file_find_version(a->file, &a->newrev,
 				true);
@@ -383,6 +392,7 @@ merge_adds(const char *branch, struct file_change *add_list)
 			 */
 			c->date = max(c->date, add_ver->date.value);
 		}
+skip_merge:
 		*new_prev_next = NULL;
 
 		c->commit_msg = commit_msg_adds(c->changes.adds);
