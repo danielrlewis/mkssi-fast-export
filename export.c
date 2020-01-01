@@ -648,8 +648,22 @@ export_project_changes(void)
 		rcs_number_increment(&pjrev_new);
 
 		ver = rcs_file_find_version(project, &pjrev_new, false);
+		if (!ver) {
+			/*
+			 * In most MKSSI projects, all project versions are 1.x.
+			 * However, there are projects where this somehow gets
+			 * bumped up to a higher major version number, such as
+			 * 2.x.  Thus, before concluding that there are no more
+			 * project revisions, jump to the next major version and
+			 * see if it exists.
+			 */
+			pjrev_new.n[0]++;
+			pjrev_new.n[1] = 0;
+			pjrev_new.c = 2;
+			ver = rcs_file_find_version(project, &pjrev_new, false);
+		}
 		if (!ver)
-			break;
+			break; /* No more project revisions, we're done. */
 
 		/* Export changes from these trunk revisions */
 		export_project_revision_changes(first ? NULL : &pjrev_old,
