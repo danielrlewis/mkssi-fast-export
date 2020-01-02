@@ -440,7 +440,8 @@ adjust_updates(struct file_change *updates)
 			 * created and checkpointed without any subsequent
 			 * revision.
 			 */
-			if (!strcmp(patch->log, "Duplicate revision\n"))
+			if (patch->log &&
+			 !strcmp(patch->log, "Duplicate revision\n"))
 				continue;
 
 			update = xcalloc(1, sizeof *update, __func__);
