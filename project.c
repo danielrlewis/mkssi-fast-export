@@ -34,9 +34,18 @@ validate_project_data(const char *pjdata, const struct rcs_number *revnum)
 	 * with that revision number.
 	 */
 	sprintf(rev_str, "$Revision: %s", rcs_number_string_sb(revnum));
-	if (!strstr(pjdata, rev_str))
+	if (!strstr(pjdata, rev_str)) {
+		/*
+		 * project.pj rev. 1.1 might have an unexpanded $Revision$
+		 * keyword.
+		 */
+		if (revnum->c == 2 && revnum->n[0] == 1 && revnum->n[1] == 1
+		 && strstr(pjdata, "$Revision$"))
+			return;
+
 		fatal_error("%s rev. %s is missing its revision marker",
 			project->master_name, rcs_number_string_sb(revnum));
+	}
 }
 
 /* find an RCS file in the hash table by name */

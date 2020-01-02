@@ -299,6 +299,18 @@ import(void)
 		fatal_error("%s/%s is corrupt", project->name,
 			mkssi_rcs_dir_path);
 
+	/*
+	 * At this point, the branch list only has one entry, for the master
+	 * branch.  If the master branch wasn't explicitly assigned a revision
+	 * number via --trunk-branch, ...
+	 */
+	if (!project_branches->number.c)
+		/*
+		 * ... then save the project.pj head revision as the master
+		 * branch revision number.
+		 */
+		project_branches->number = project->head;
+
 	/* Import the rest of the RCS master files. */
 	import_rcs_files_in_dir("");
 }

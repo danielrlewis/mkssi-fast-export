@@ -601,6 +601,15 @@ export_project_branch_changes(const struct rcs_number *pjrev_start,
 	 * be checked-out, so they should be exported.
 	 */
 	for (mb = project_branches; mb; mb = mb->next) {
+		/*
+		 * The master branch (a.k.a. the trunk) isn't listed in the
+		 * variant block, so none of this applies.  This check is needed
+		 * though, otherwise we might re-export the tip revisions for
+		 * the trunk.
+		 */
+		if (!strcmp(mb->branch_name, "master"))
+			continue;
+
 		/* Does this MKSSI branch start from this project revision? */
 		if (!rcs_number_equal(&mb->number, pjrev_start))
 			continue;
