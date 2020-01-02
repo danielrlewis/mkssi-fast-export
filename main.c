@@ -122,8 +122,9 @@ mkssi_rcs_dir_validate(const char *mkssi_rcs_dir)
 static void
 mkssi_proj_dir_validate(const char *mkssi_tip_dir)
 {
-	const char header[] = "--MKS Project--\n";
+	const char header[] = "--MKS Project--";
 	char firstln[sizeof header - 1];
+	int nl;
 	FILE *pjfile;
 
 	dir_validate(mkssi_tip_dir);
@@ -133,7 +134,13 @@ mkssi_proj_dir_validate(const char *mkssi_tip_dir)
 	if (fread(firstln, 1, sizeof firstln, pjfile) != sizeof firstln)
 		fatal_system_error("cannot read from \"%s/project.pj\"",
 			mkssi_tip_dir);
-	if (strncmp(firstln, header, sizeof firstln))
+
+	/* Header should be followed by a newline, possibly preceded by a CR */
+	nl = fgetc(pjfile);
+	if (nl == '\r')
+		nl = fgetc(pjfile);
+
+	if (strncmp(firstln, header, sizeof firstln) || nl != '\n')
 		fatal_error("bad MKSSI tip directory: project.pj is not an "
 			"MKSSI project");
 

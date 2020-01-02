@@ -14,19 +14,80 @@ struct pjrev_files {
 /* Linked list of file revisions included in each project revision */
 static struct pjrev_files *pjrev_files;
 
+/* return start of next line after str; or NULL if no more lines */
+static const char *
+next_line(const char *str)
+{
+	str = strchr(str, '\n');
+	if (str) {
+		++str;
+		if (!*str)
+			str = NULL;
+	}
+
+	return str;
+}
+
+/* find a line in str; returns NULL if not found */
+static const char *
+find_line(const char *str, const char *line)
+{
+	const char *p, *lnstart;
+	size_t lnlen;
+
+	lnlen = strlen(line);
+
+	for (p = str; p; p = next_line(p)) {
+		if (strncmp(p, line, lnlen))
+			continue;
+
+		lnstart = p;
+
+		/* Make sure there is nothing else on the line. */
+		p += lnlen;
+		if (*p == '\r')
+			++p;
+		if (*p != '\n')
+			continue; /* Line has other chars, not a match */
+
+		p = lnstart;
+		break;
+	}
+
+	return p;
+}
+
 /* validate that a string looks like a given revision of project.pj */
 static void
 validate_project_data(const char *pjdata, const struct rcs_number *revnum)
 {
+	static const char hdr_trunk[] = "--MKS Project--";
+	static const char hdr_branch[] = "--MKS Variant Project--";
+	const char *pos;
+	int nl;
 	char rev_str[11 + RCS_MAX_REV_LEN + 1];
 
 	/*
 	 * Sanity check: each revision of project.pj should start with "--MKS
-	 * Project--" or "--MKS Variant Project--".
+	 * Project--" or "--MKS Variant Project--", followed by a newline.
 	 */
-	if (strncmp(pjdata, "--MKS Project--\n", 16)
-	 && strncmp(pjdata, "--MKS Variant Project--\n", 24))
-		fatal_error("%s rev. %s is corrupt", project->master_name,
+	if (!strncmp(pjdata, hdr_trunk, sizeof hdr_trunk - 1))
+		pos = pjdata + sizeof hdr_trunk - 1;
+	else if (!strncmp(pjdata, hdr_branch, sizeof hdr_branch - 1))
+		pos = pjdata + sizeof hdr_branch - 1;
+	else {
+		fatal_error("%s rev. %s is corrupt (no header)",
+			project->master_name,
+			rcs_number_string_sb(revnum));
+		return; /* unreachable; but it quiets warnings. */
+	}
+
+	nl = *pos++;
+	if (nl == '\r')
+		nl = *pos++;
+	if (nl != '\n')
+		fatal_error("%s rev. %s is corrupt (no header newline)",
+			project->master_name,
 			rcs_number_string_sb(revnum));
 
 	/*
@@ -34,13 +95,13 @@ validate_project_data(const char *pjdata, const struct rcs_number *revnum)
 	 * with that revision number.
 	 */
 	sprintf(rev_str, "$Revision: %s", rcs_number_string_sb(revnum));
-	if (!strstr(pjdata, rev_str)) {
+	if (!strstr(pos, rev_str)) {
 		/*
 		 * project.pj rev. 1.1 might have an unexpanded $Revision$
 		 * keyword.
 		 */
 		if (revnum->c == 2 && revnum->n[0] == 1 && revnum->n[1] == 1
-		 && strstr(pjdata, "$Revision$"))
+		 && strstr(pos, "$Revision$"))
 			return;
 
 		fatal_error("%s rev. %s is missing its revision marker",
@@ -118,8 +179,8 @@ fix_directory_capitalization(const struct rcs_file_revision *frevs)
 static struct rcs_file_revision *
 project_revision_read_files(const char *pjdata)
 {
-	const char flist_start_marker[] = "\nEndOptions\n";
-	const char file_prefix[] = "$(projectdir)/";
+	static const char flist_start_marker[] = "EndOptions";
+	static const char file_prefix[] = "$(projectdir)/";
 	struct rcs_file_revision *head, **prev, *frev;
 	struct rcs_file *file;
 	const char *flist, *line, *lp, *endline;
@@ -130,11 +191,11 @@ project_revision_read_files(const char *pjdata)
 
 	prev = &head;
 
-	flist = strstr(pjdata, flist_start_marker);
+	flist = find_line(pjdata, flist_start_marker);
 	if (!flist)
-		fatal_error("missing \"EndOptions\" in %s",
+		fatal_error("missing \"%s\" in %s", flist_start_marker,
 			project->master_name);
-	flist += strlen(flist_start_marker);
+	flist = next_line(flist);
 
 	/*
 	 * Each line in the file list looks something like this:
@@ -153,7 +214,7 @@ project_revision_read_files(const char *pjdata)
 	 *
 	 * 	"$(projectdir)/dir with spaces"/file.txt a 1.42
 	 */
-	for (line = flist; *line; line = *endline ? endline + 1 : endline) {
+	for (line = flist; line; line = next_line(line)) {
 		endline = strchr(line, '\n');
 		if (!endline)
 			endline = line + strlen(line);
@@ -177,6 +238,14 @@ project_revision_read_files(const char *pjdata)
 			++lp;
 		}
 
+		/*
+		 * project.pj can point to RCS files outside the RCS directory,
+		 * in which case the prefix will be different.  However, since
+		 * we don't have access to these RCS files outside the project
+		 * (usually they were on someone's local machine and are thus
+		 * lost forever) we have little choice but to ignore these
+		 * files.
+		 */
 		if (strncmp(lp, file_prefix, strlen(file_prefix))) {
 			fprintf(stderr, "warning: ignoring file with unexpected"
 				" project directory prefix:\n");
@@ -444,19 +513,23 @@ static void
 project_revision_read_branches(struct mkssi_branch **branches,
 	const char *pjdata)
 {
-	const char start_marker[] = "block _mks_variant_projects\n";
+	static const char start_marker[] = "block _mks_variant_projects";
+	static const char end_marker[] = "end";
 	const char *start, *end, *line, *endline;
 
-	start = strstr(pjdata, start_marker);
+	/* Find the start of the branch list. */
+	start = find_line(pjdata, start_marker);
 	if (!start)
-		return;
+		return; /* No branches in this project.pj */
 
-	start += strlen(start_marker);
-	end = strstr(start, "\nend\n");
+	start = next_line(start); /* Branch list starts on the next line. */
+
+	/* Find the end of the branch list. */
+	end = find_line(start, end_marker);
 	if (!end)
 		fatal_error("unterminated block of variant projects");
 
-	for (line = start; line < end; line = endline + 1) {
+	for (line = start; line < end; line = next_line(line)) {
 		endline = strchr(line, '\n');
 		project_branch_add(branches,
 			parse_project_branch_line(line, endline));
