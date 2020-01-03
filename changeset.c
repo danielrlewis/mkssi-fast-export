@@ -132,7 +132,8 @@ apply_parent_dir_renames_to_rename(struct file_change *rename,
 	 * account for that prior rename.
 	 *
 	 * TODO: rename->old_canonical_name is const-qualified, but we're
-	 * ignoring that because we know it was just allocated...
+	 * ignoring that because we know that it points to memory that was just
+	 * allocated and thus can be modified.
 	 */
 	if (rlong)
 		memcpy((char *)rename->old_canonical_name,
@@ -205,22 +206,18 @@ find_implicit_dir_renames(const struct rcs_file_revision *old,
 				 */
 
 				/*
-				 * TODO: The memory allocated for these paths is
-				 * leaked; it is needed only briefly but is
-				 * never freed.  This code path is executed very
-				 * rarely in a typical MKSSI project, so
-				 * overlooking the memory leak for now.
-				 *
 				 * The rename commit cannot have trailing path
 				 * separators, but the in-memory paths have them
 				 * (included in the length), which is why the
 				 * name copy is cut off at len-1.
 				 */
-				path = xmalloc(od->len, __func__);
+				rename->buf = xmalloc(od->len + nd->len,
+					__func__);
+				path = rename->buf;
 				memcpy(path, od->path, od->len-1);
 				path[od->len-1] = '\0';
 				rename->old_canonical_name = path;
-				path = xmalloc(nd->len, __func__);
+				path += od->len;
 				memcpy(path, nd->path, nd->len-1);
 				path[nd->len-1] = '\0';
 				rename->canonical_name = path;
@@ -261,6 +258,7 @@ find_implicit_file_renames(const struct rcs_file_revision *old,
 	const struct rcs_file_revision *o, *n;
 	struct file_change *rename, *head;
 	const char *opath, *npath, *oname, *nname;
+	char *path;
 
 	/*
 	 * Search for files which had their file name capitalization changed.
@@ -298,17 +296,14 @@ find_implicit_file_renames(const struct rcs_file_revision *old,
 				 */
 				rename->file = n->file;
 
-				/*
-				 * TODO: The memory allocated for these paths is
-				 * leaked; it is needed only briefly but is
-				 * never freed.  This code path is executed very
-				 * rarely in a typical MKSSI project, so
-				 * overlooking the memory leak for now.
-				 */
-				rename->old_canonical_name = xstrdup(opath,
-					__func__);
-				rename->canonical_name = xstrdup(npath,
-					__func__);
+				rename->buf = xmalloc(strlen(opath) +
+					strlen(npath) + 2, __func__);
+				path = rename->buf;
+				strcpy(path, opath);
+				rename->old_canonical_name = path;
+				path += strlen(opath) + 1;
+				strcpy(path, npath);
+				rename->canonical_name = path;
 
 				/*
 				 * If the old path references a parent directory
@@ -531,6 +526,8 @@ remove_nonexistent_file_revisions(struct file_change *changes)
 				rcs_number_string_sb(&c->newrev));
 			*prev_next = c->next;
 
+			if (c->buf)
+				free(c->buf);
 			free(c);
 		}
 	}
@@ -544,7 +541,6 @@ adjust_deletes_for_renames(const struct file_change *renames,
 {
 	const struct file_change *r, *rlong;
 	struct file_change *d;
-	char *path;
 
 	/*
 	 * Renames are committed prior to deletions.  However, deletions use the
@@ -572,19 +568,12 @@ adjust_deletes_for_renames(const struct file_change *renames,
 			}
 		}
 		if (rlong) {
-			/*
-			 * TODO: This memory is leaked.  Overlooking for now,
-			 * since this code runs rarely in a typical MKSSI
-			 * project.
-			 */
-			path = xstrdup(d->canonical_name, __func__);
-			memcpy(path, rlong->canonical_name,
+			d->buf = xstrdup(d->canonical_name, __func__);
+			memcpy(d->buf, rlong->canonical_name,
 				strlen(rlong->canonical_name));
-			d->canonical_name = path;
-
+			d->canonical_name = d->buf;
 		}
 	}
-
 }
 
 /* compare two changes by name for sorting purposes */
@@ -716,6 +705,9 @@ change_list_free(struct file_change *list)
 
 	for (c = list; c; c = cnext) {
 		cnext = c->next;
+
+		if (c->buf)
+			free(c->buf);
 		free(c);
 	}
 }

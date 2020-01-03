@@ -142,6 +142,7 @@ struct file_change {
 	const struct rcs_file *file;
 	const char *canonical_name; /* name with capitalization fixes */
 	const char *old_canonical_name; /* used only for renames */
+	char *buf; /* sometimes allocated for canonical names */
 	struct rcs_number oldrev, newrev;
 	bool member_type_other;
 };
