@@ -249,43 +249,23 @@ merge_renames(const char *branch, struct file_change *renames, time_t cp_date)
 {
 	struct git_commit *cdir, *cfile;
 	static const char msg_dir[] =
-"Implicit rename to change directory name capitalization\n\
+"Rename to change directory name capitalization\n\
 \n\
 This commit has been automatically generated to represent an implicit change to\n\
-the capitalization of a directory name within the MKSSI project.  Git (unlike\n\
-MKSSI) is case sensitive; changing directory name capitalization requires\n\
-renaming the files within that directory.\n\
-\n\
-In MKSSI, project directories are inferred from the paths in the project file\n\
-listing.  A directory name can be listed with different capitalization variants,\n\
-for example \"FooBar/a.txt\" and \"foobar/b.txt\".  On the Windows operating\n\
-system, which has file systems that are case-insensitive but case-preserving,\n\
-the capitalization variant which is listed first is the one that will show up\n\
-when checking out a sandbox for the project.\n\
-\n\
-One way that an implicit directory rename can occur is when the first-listed\n\
-capitalization variant changes over time, due to added or deleted files.  Thus\n\
-if the file list is as follows:\n\
-\n\
-	FooBar/a.txt\n\
-	foobar/b.txt\n\
-\n\
-Then the MKSSI directory will be \"FooBar\".  But if a new file is added:\n\
-\n\
-	foobar/_new.txt\n\
-	FooBar/a.txt\n\
-	foobar/b.txt\n\
-\n\
-Then the MKSSI directory will be \"foobar\".  Git is case-sensitive, so to\n\
-emulate the MKSSI behavior, the directory must be renamed in such cases.\n\
-";
+the capitalization of one or more directory names within the MKSSI project.\n\
+MKSSI (at least the DOS/Windows versions) is case insensitive, and the\n\
+capitalization of directory names in the project listing can change over time.\n\
+Since Git is case sensitive, these changes to directory name capitalization\n\
+require a commit to explicitly rename the affected directories.\n";
 	static const char msg_file[] =
-"Implicit rename to change file name capitalization\n\
+"Rename to change file name capitalization\n\
 \n\
 This commit has been automatically generated to represent an implicit change to\n\
-the capitalization of a file name within the MKSSI project.  Git (unlike MKSSI)\n\
-is case-sensitive; changing file name capitalization requires renaming the file.\n\
-";
+the capitalization of one or more file names within the MKSSI project.  MKSSI\n\
+(at least the DOS/Windows versions) is case insensitive, and the capitalization\n\
+of file names in the project listing can change over time.  Since Git is case\n\
+sensitive, these changes to file name capitalization require a commit to\n\
+explicitly rename the affected files.\n";
 
 	if (!renames)
 		return NULL;
