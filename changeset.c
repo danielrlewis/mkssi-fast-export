@@ -530,6 +530,8 @@ remove_nonexistent_file_revisions(struct file_change *changes)
 				c->file->name,
 				rcs_number_string_sb(&c->newrev));
 			*prev_next = c->next;
+
+			free(c);
 		}
 	}
 	return changes;
