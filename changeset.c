@@ -542,7 +542,7 @@ static void
 adjust_deletes_for_renames(const struct file_change *renames,
 	struct file_change *deletes)
 {
-	const struct file_change *r;
+	const struct file_change *r, *rlong;
 	struct file_change *d;
 	char *path;
 
@@ -553,20 +553,37 @@ adjust_deletes_for_renames(const struct file_change *renames,
 	 * listing.  This isn't necessary for adds/updates, where the paths are
 	 * from the new version of the project file.
 	 */
-	for (d = deletes; d; d = d->next)
-		for (r = renames; r; r = r->next)
-			if (!strncmp(d->canonical_name, r->old_canonical_name,
-			 strlen(r->old_canonical_name))) {
-				/*
-				 * TODO: This memory is leaked.  Overlooking
-				 * for now, since this code runs rarely in a
-				 * typical MKSSI project.
-				 */
-				path = xstrdup(d->canonical_name, __func__);
-				memcpy(path, r->canonical_name,
-					strlen(r->canonical_name));
-				d->canonical_name = path;
+	for (d = deletes; d; d = d->next) {
+		rlong = NULL;
+		for (r = renames; r; r = r->next) {
+			if (r->file) { /* If this is a rename of a file */
+				if (!strcasecmp(d->canonical_name,
+				 r->canonical_name) && strcmp(d->canonical_name,
+				 r->canonical_name)) {
+					rlong = r;
+					break;
+				}
+			} else if (is_parent_dir(r->canonical_name,
+			 d->canonical_name) && strncmp(d->canonical_name,
+			 r->canonical_name, strlen(r->canonical_name))) {
+				if (!rlong || strlen(r->canonical_name) >
+				 strlen(rlong->canonical_name))
+					rlong = r;
 			}
+		}
+		if (rlong) {
+			/*
+			 * TODO: This memory is leaked.  Overlooking for now,
+			 * since this code runs rarely in a typical MKSSI
+			 * project.
+			 */
+			path = xstrdup(d->canonical_name, __func__);
+			memcpy(path, rlong->canonical_name,
+				strlen(rlong->canonical_name));
+			d->canonical_name = path;
+
+		}
+	}
 
 }
 
