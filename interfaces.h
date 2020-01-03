@@ -37,14 +37,17 @@ struct rcs_symbol {
 
 /* a project branch within MKSSI */
 struct mkssi_branch {
-	struct mkssi_branch *next;
+	struct mkssi_branch *next; /* next in linked list */
+	struct mkssi_branch *parent; /* parent branch */
 
 	char *branch_name; /* sanitized branch name */
 	char *pj_name; /* vpNNNN.pj file with branch's tip revisions */
 	time_t mtime;  /* mtime of *.pj file */
 	struct rcs_number number; /* project revision number for branch */
 	const struct rcs_file_revision *tip_frevs; /* file revisions for tip */
-	unsigned long ncommit; /* # of commits on this branch */
+	unsigned long ncommit_total; /* # of commits on this branch */
+	unsigned long ncommit_orig; /* commits originating on this branch */
+	bool created; /* whether the branchpoint has been exported */
 };
 
 /* an RCS branch revision */

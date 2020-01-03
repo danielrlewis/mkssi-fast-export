@@ -175,6 +175,7 @@ main(int argc, char *argv[])
 	 */
 	project_branches = xcalloc(1, sizeof *project_branches, __func__);
 	project_branches->branch_name = xstrdup("master", __func__);
+	project_branches->created = true;
 
 	/* Parse options */
 	author_map = NULL;
