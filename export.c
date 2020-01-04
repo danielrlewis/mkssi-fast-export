@@ -383,9 +383,7 @@ export_demarcating_tag(const char *branch)
 \n\
 This tag marks the final commit on this branch that was exported from MKS\n\
 Source Integrity (MKSSI).  The tagged commit and all antecedents were exported\n\
-by mkssi-fast-export into Git via git-fast-import(1).\n\
-\n\
-";
+by mkssi-fast-export into Git via git-fast-import(1).\n";
 
 	export_progress("exporting demarcating tag for branch %s", branch);
 
