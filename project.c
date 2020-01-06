@@ -109,6 +109,37 @@ validate_project_data(const char *pjdata, const struct rcs_number *revnum)
 	}
 }
 
+/* read revision number from project data */
+static void
+project_data_extract_revnum(const char *pjdata, struct rcs_number *revnum)
+{
+	const char *pos;
+
+	/*
+	 * This function is called after validate_project_data(), so the fatal
+	 * error cases are unexpected (thus it's okay that the error messages
+	 * aren't very detailed).
+	 */
+
+	pos = strstr(pjdata, "\n$Revision");
+	if (!pos)
+		fatal_error("missing revision number");
+
+	pos += 10;
+	if (*pos == '$') {
+		/* Unexpanded $Revision$ means rev. 1.1 */
+		revnum->n[0] = 1;
+		revnum->n[1] = 1;
+		revnum->c = 2;
+		return;
+	}
+
+	if (*pos++ != ':' || *pos++ != ' ')
+		fatal_error("incorrectly formatted revision number");
+
+	*revnum = lex_number(pos);
+}
+
 /* find an RCS file in the hash table by name */
 static struct rcs_file *
 rcs_file_find(const char *name)
@@ -674,6 +705,13 @@ project_branch_read_tip_revision(struct mkssi_branch *b)
 	 * branch list.
 	 */
 	b->tip_frevs = project_parse_revision(pjdata, &b->number, is_master);
+
+	/*
+	 * Save the revision number which appears in the project data for this
+	 * branch.  This is used for disambiguation when a project.pj revision
+	 * has multiple branches.
+	 */
+	project_data_extract_revnum(pjdata, &b->tip_number);
 
 	/*
 	 * Save the mtime of the project file.  This will be used as the commit

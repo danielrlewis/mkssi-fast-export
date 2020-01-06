@@ -60,6 +60,7 @@ pjrev_find_branch_after(const struct rcs_number *pjrev,
 	const struct mkssi_branch *prev_branch)
 {
 	struct mkssi_branch *b;
+	struct rcs_number pjrev_short;
 
 	/* Trunk project revisions go on the trunk, unless... */
 	if (rcs_number_is_trunk(pjrev)) {
@@ -84,6 +85,10 @@ pjrev_find_branch_after(const struct rcs_number *pjrev,
 		return pjrev_find_master_branch();
 	}
 
+	/* pjrev with the last component stripped off */
+	pjrev_short = *pjrev;
+	pjrev_short.c--;
+
 	/*
 	 * A project branch at 1.4 would match 1.4.1.x, but not 1.4 (which is
 	 * trunk) or 1.4.1.x.1.y (which is a branch of a branch).
@@ -102,9 +107,24 @@ pjrev_find_branch_after(const struct rcs_number *pjrev,
 		if (prev_branch)
 			continue;
 
-		if (pjrev->c - 2 == b->number.c
-		 && rcs_number_partial_match(pjrev, &b->number))
-			return b;
+		if (pjrev->c - 2 != b->number.c
+		 || !rcs_number_partial_match(pjrev, &b->number))
+			continue;
+
+		/*
+		 * Branch disambiguation.  Suppose you have a branch using
+		 * 1.4.1.x and another branch using 1.4.2.x.  Both will have a
+		 * b->number of 1.4, since that is how they are listed in the
+		 * project.pj variant block.  The only place that the full
+		 * branch number _might_ be listed is in vpNNNN.pj, which (if
+		 * available) was saved in b->tip_number.  Use that value to
+		 * ensure we are matching the correct branch.
+		 */
+		if (b->tip_number.c == pjrev->c
+		 && !rcs_number_partial_match(&b->tip_number, &pjrev_short))
+			continue;
+
+		return b;
 	}
 
 	/* No matching branch for this project revision */

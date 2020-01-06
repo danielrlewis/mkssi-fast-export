@@ -44,6 +44,7 @@ struct mkssi_branch {
 	char *pj_name; /* vpNNNN.pj file with branch's tip revisions */
 	time_t mtime;  /* mtime of *.pj file */
 	struct rcs_number number; /* project revision number for branch */
+	struct rcs_number tip_number; /* revision number in vpNNNN.pj */
 	const struct rcs_file_revision *tip_frevs; /* file revisions for tip */
 	unsigned long ncommit_total; /* # of commits on this branch */
 	unsigned long ncommit_orig; /* commits originating on this branch */
