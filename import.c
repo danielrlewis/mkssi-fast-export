@@ -124,24 +124,12 @@ import_rcs_file(const char *relative_path)
 	int err;
 
 	file = xcalloc(1, sizeof *file, __func__);
-retry:
 	file->master_name = sprintf_alloc("%s/%s", mkssi_rcs_dir_path,
 		relative_path);
 	file->name = xstrdup(relative_path, __func__);
 
-	if (!(in = fopen(file->master_name, "r"))) {
-		/*
-		 * Special case for project.pj: sometimes it is PROJECT.PJ for
-		 * old projects that did not use long file names.
-		 */
-		if (!strcmp(relative_path, "project.pj")) {
-			relative_path = "PROJECT.PJ";
-			free(file->master_name);
-			free(file->name);
-			goto retry;
-		}
+	if (!(in = fopen(file->master_name, "r")))
 		fatal_system_error("cannot open \"%s\"", file->master_name);
-	}
 
 	/* Lexer/parser do not like empty files */
 	if (stat(file->master_name, &buf))
@@ -294,7 +282,7 @@ import(void)
 			mkssi_rcs_dir_path);
 
 	/* Import project.pj first, so we fail quickly if something is wrong. */
-	project = import_rcs_file("project.pj");
+	project = import_rcs_file(rcs_projectpj_name);
 	if (project->corrupt)
 		fatal_error("%s/%s is corrupt", project->name,
 			mkssi_rcs_dir_path);

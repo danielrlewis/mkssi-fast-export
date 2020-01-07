@@ -10,16 +10,20 @@
 #include "gram.h"
 #include "lex.h"
 
-const char *mkssi_rcs_dir_path;
-const char *mkssi_proj_dir_path;
-const char *source_dir_path;
+const char *mkssi_rcs_dir_path; /* --rcs-dir */
+const char *mkssi_proj_dir_path; /* --proj-dir */
+const char *source_dir_path; /* --source-dir */
+const char *pname_dir_path; /* --pname-dir */
+const char *rcs_projectpj_name; /* project.pj name in RCS directory */
+const char *proj_projectpj_name; /* project.pj name in project directory */
+const char *proj_projectvpj_name; /* project.vpj name in proj directory */
 struct rcs_file *files;
 struct rcs_file *file_hash_table[1024];
 struct rcs_file *corrupt_files;
-struct rcs_file *project; /* project.pj */
+struct rcs_file *project; /* RCS project.pj */
 struct mkssi_branch *project_branches;
-struct rcs_number trunk_branch;
-bool author_list;
+struct rcs_number trunk_branch; /* --trunk-branch */
+bool author_list; /* --authorlist */
 
 /* print usage and exit */
 static void
@@ -43,6 +47,8 @@ usage(const char *name, bool error)
 	fprintf(f, "  -r --rcs-dir=path  Path to MKSSI RCS directory.\n");
 	fprintf(f, "  -S --source-dir=path  Directory to use for $Source$ "
 		"keyword\n");
+	fprintf(f, "  -P --pname-dir  Directory to use for $ProjectName$ "
+		"keyword\n");
 	fprintf(f, "  -b --trunk-branch=rev  Trunk branch revision number "
 		"(trunk as branch)\n");
 	fprintf(f, "  -A --authormap=file  Author map (same as "
@@ -65,36 +71,66 @@ dir_validate(const char *dir_path)
 		fatal_error("not a directory: \"%s\"", dir_path);
 }
 
-/* open the project.pj file in an MKSSI directory */
-static FILE *
-open_project(const char *mkssi_dir)
+/* find a file name in a directory, with case-insensitive matching */
+static char *
+dir_find_case(const char *dir_path, const char *fname)
 {
-	char path[1024]; /* big enough */
-	FILE *pjfile;
+	DIR *dirp;
+	struct dirent *de;
+	char *fname_canonical;
 
-	/*
-	 * Try the less-common 8.3 variant of the name first, so that the error
-	 * message (which prints path) will print the LFN variant.
-	 */
-	snprintf(path, sizeof path, "%s/PROJECT.PJ", mkssi_dir);
-	if (!(pjfile = fopen(path, "r"))) {
-		snprintf(path, sizeof path, "%s/project.pj", mkssi_dir);
-		if (!(pjfile = fopen(path, "r")))
-			fatal_system_error("cannot open \"%s\"", path);
+	dirp = opendir(dir_path);
+	if (!dirp)
+		fatal_system_error("cannot open directory at \"%s\"", dir_path);
+
+	for (;;) {
+		errno = 0;
+		de = readdir(dirp);
+		if (!de) {
+			if (errno)
+				fatal_system_error("error reading from "
+					"directory at \"%s\"", dir_path);
+
+			/* If the file name isn't found, return NULL. */
+			fname_canonical = NULL;
+			break;
+		}
+
+		if (!strcasecmp(fname, de->d_name)) {
+			/* Return the name with canonical capitalization. */
+			fname_canonical = xstrdup(de->d_name, __func__);
+			break;
+		}
 	}
 
-	return pjfile;
+	closedir(dirp);
+
+	return fname_canonical;
 }
 
 /* validate the user-supplied MKSSI RCS directory */
 static void
-mkssi_rcs_dir_validate(const char *mkssi_rcs_dir)
+mkssi_rcs_dir_validate(const char *dir_path)
 {
-	char head[4];
+	char *path, head[4];
 	FILE *pjfile;
 
-	dir_validate(mkssi_rcs_dir);
-	pjfile = open_project(mkssi_rcs_dir);
+	dir_validate(dir_path);
+
+	/*
+	 * Make sure project.pj exists.  MKSSI is case-insensitive, so
+	 * project.pj could have any capitalization variant, which we save for
+	 * later use.
+	 */
+	errno = 0;
+	rcs_projectpj_name = dir_find_case(dir_path, "project.pj");
+	if (!rcs_projectpj_name)
+		fatal_system_error("no project.pj file in RCS directory");
+
+	/* Open the project.pj */
+	path = sprintf_alloc("%s/%s", dir_path, rcs_projectpj_name);
+	if (!(pjfile = fopen(path, "r")))
+		fatal_system_error("cannot open \"%s\"", path);
 
 	/*
 	 * MKSSI projects can be a bit confusing because there are two project
@@ -105,35 +141,63 @@ mkssi_rcs_dir_validate(const char *mkssi_rcs_dir)
 	 * is a second project directory which contains all of the RCS file
 	 * masters, including the revisioned project.pj.  Because this is
 	 * potentially confusing, we want to make sure that the project.pj file
-	 * in the MKSSI directory is the revisioned version -- if revisioned,
-	 * the first four bytes should be "head".
+	 * in the MKSSI RCS directory is the revisioned version -- if
+	 * revisioned, the first four bytes should be "head".
 	 */
 	errno = 0;
 	if (fread(head, 1, sizeof head, pjfile) != sizeof head)
-		fatal_system_error("cannot read from \"%s/project.pj\"",
-			mkssi_rcs_dir);
+		fatal_system_error("cannot read from \"%s\"", path);
 	if (strncmp(head, "head", 4))
 		fatal_error("bad MKSSI RCS directory: project.pj is not RCS");
 
 	fclose(pjfile);
+	free(path);
 }
 
 /* validate the user-supplied MKSSI project directory */
 static void
-mkssi_proj_dir_validate(const char *mkssi_tip_dir)
+mkssi_proj_dir_validate(const char *dir_path)
 {
 	const char header[] = "--MKS Project--";
-	char firstln[sizeof header - 1];
+	char *path, firstln[sizeof header - 1];
 	int nl;
 	FILE *pjfile;
 
-	dir_validate(mkssi_tip_dir);
-	pjfile = open_project(mkssi_tip_dir);
+	dir_validate(dir_path);
 
+	/*
+	 * Make sure project.pj exists.  MKSSI is case-insensitive, so
+	 * project.pj could have any capitalization variant, which we save for
+	 * later use.
+	 */
+	errno = 0;
+	proj_projectpj_name = dir_find_case(dir_path, "project.pj");
+	if (!proj_projectpj_name)
+		fatal_system_error("no project.pj file in project directory");
+
+	/*
+	 * Look for the project.vpj directory.  project.vpj only exists for
+	 * MKSSI projects that have branches.  MKSSI is case-insensitive, so
+	 * project.vpj could have any capitalization variant, which we save for
+	 * later use.
+	 */
+	proj_projectvpj_name = dir_find_case(dir_path, "project.vpj");
+	if (proj_projectvpj_name) {
+		/* If project.vpj exists, it should be a directory. */
+		path = sprintf_alloc("%s/%s", dir_path, proj_projectvpj_name);
+		dir_validate(path);
+		free(path);
+	}
+
+	/* Open the project.pj */
+	path = sprintf_alloc("%s/%s", dir_path, proj_projectpj_name);
+	if (!(pjfile = fopen(path, "r")))
+		fatal_system_error("cannot open \"%s\"", path);
+
+	/* Make sure project.pj has the expected header. */
 	errno = 0;
 	if (fread(firstln, 1, sizeof firstln, pjfile) != sizeof firstln)
-		fatal_system_error("cannot read from \"%s/project.pj\"",
-			mkssi_tip_dir);
+		fatal_system_error("cannot read from \"%s\"", path);
 
 	/* Header should be followed by a newline, possibly preceded by a CR */
 	nl = fgetc(pjfile);
@@ -141,10 +205,11 @@ mkssi_proj_dir_validate(const char *mkssi_tip_dir)
 		nl = fgetc(pjfile);
 
 	if (strncmp(firstln, header, sizeof firstln) || nl != '\n')
-		fatal_error("bad MKSSI tip directory: project.pj is not an "
+		fatal_error("bad MKSSI project directory: project.pj is not an "
 			"MKSSI project");
 
 	fclose(pjfile);
+	free(path);
 }
 
 int
@@ -154,6 +219,7 @@ main(int argc, char *argv[])
 		{ "proj-dir", required_argument, 0, 'p' },
 		{ "rcs-dir", required_argument, 0, 'r' },
 		{ "source-dir", required_argument, 0, 'S' },
+		{ "pname-dir", required_argument, 0, 'P' },
 		{ "trunk-branch", required_argument, 0, 'b'},
 		{ "authormap", required_argument, 0, 'A'},
 		{ "authorlist", no_argument, 0, 'a'},
@@ -180,7 +246,7 @@ main(int argc, char *argv[])
 	/* Parse options */
 	author_map = NULL;
 	for (;;) {
-		c = getopt_long(argc, argv, "p:r:S:b:A:ah", options, NULL);
+		c = getopt_long(argc, argv, "p:r:S:P:b:A:ah", options, NULL);
 		if (c < 0)
 			break;
 		switch (c) {
@@ -194,6 +260,9 @@ main(int argc, char *argv[])
 			break;
 		case 'S':
 			source_dir_path = optarg;
+			break;
+		case 'P':
+			pname_dir_path = optarg;
 			break;
 		case 'b':
 			trunk_branch = lex_number(optarg);

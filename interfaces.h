@@ -215,6 +215,10 @@ struct dir_path {
 extern const char *mkssi_rcs_dir_path;
 extern const char *mkssi_proj_dir_path;
 extern const char *source_dir_path;
+extern const char *pname_dir_path;
+extern const char *rcs_projectpj_name;
+extern const char *proj_projectpj_name;
+extern const char *proj_projectvpj_name;
 extern struct rcs_file *files;
 extern struct rcs_file *file_hash_table[1024];
 extern struct rcs_file *corrupt_files;

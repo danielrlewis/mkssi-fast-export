@@ -692,10 +692,11 @@ project_branch_read_tip_revision(struct mkssi_branch *b)
 	 * previously parsed and saved).
 	 */
 	if (is_master)
-		path = sprintf_alloc("%s/project.pj", mkssi_proj_dir_path);
+		path = sprintf_alloc("%s/%s", mkssi_proj_dir_path,
+			proj_projectpj_name);
 	else
-		path = sprintf_alloc("%s/project.vpj/%s",
-			mkssi_proj_dir_path, b->pj_name);
+		path = sprintf_alloc("%s/%s/%s", mkssi_proj_dir_path,
+			proj_projectvpj_name, b->pj_name);
 
 	/* Get the entire project file as a NUL-terminated string. */
 	pjdata = file_as_string(path);
@@ -749,6 +750,25 @@ project_read_tip_revisions(void)
 	 * through it.
 	 */
 	project_branch_read_tip_revision(project_branches);
+
+	/*
+	 * If the project.vpj directory doesn't exist in the project directory,
+	 * then there are no branches.
+	 */
+	if (!proj_projectvpj_name) {
+		/*
+		 * Print a warning if the project.vpj directory _should_ have
+		 * existed, because the project has branches.  In such cases,
+		 * we won't be able to export the tip revisions for the
+		 * branches.  We can still export everything else, though, so
+		 * this isn't a fatal error.
+		 */
+		if (project_branches->next)
+			fprintf(stderr, "warning: project has branches but "
+				"there is no project.vpj directory\n");
+
+		return;
+	}
 
 	/*
 	 * Read the tip revision of every branch.
