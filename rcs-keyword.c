@@ -176,6 +176,21 @@ static char *
 expanded_projectrevision_str(const struct rcs_file *file,
 	const struct rcs_version *ver)
 {
+	/*
+	 * TODO: This isn't correct.  In MKSSI, $ProjectRevision$ seems to
+	 * expand to the project.pj revision of the checkpoint or branch which
+	 * is being checked-out.  Below, it is hard-coded to expand to the head
+	 * revision.  This isn't likely to get fixed, since $ProjectRevision$ is
+	 * rarely used and fixing it would be extremely difficult.  We generally
+	 * assume that a file revision will have the same contents regardless of
+	 * which branch or checkpoint references that file revision; thus, we
+	 * can export a blob for that revision and reuse it.  That isn't true if
+	 * the file revision includes this keyword.  The only way to implement
+	 * this keyword would be to export separate blobs for each project.pj
+	 * revision which references the file revision, and use those to
+	 * generate commits that update $ProjectRevision$ when the project
+	 * revision number is incremented.
+	 */
 	return sprintf_alloc("$ProjectRevision: %s $",
 		rcs_number_string_sb(&project->head));
 }
