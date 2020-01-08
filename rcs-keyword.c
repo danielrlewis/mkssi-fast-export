@@ -380,7 +380,7 @@ rcs_data_expand_log_keyword(const struct rcs_file *file,
 	struct rcs_line *dlines)
 {
 	struct rcs_line *dl, *loghdr, *loglines, *ll;
-	char *lp, *kw, *log;
+	char *lp, *kw, *log, *template_line;
 	size_t prefix_len, postfix_len, postfix_start;
 	struct rcs_number num;
 	const struct rcs_version *pver;
@@ -407,12 +407,25 @@ rcs_data_expand_log_keyword(const struct rcs_file *file,
 		++lp; /* Move past '$' */
 
 		/*
-		 * Any white space or comment characters preceding and following
-		 * the log keyword need to be included on the log lines.
+		 * Any characters (usually white space or comment delimiters)
+		 * preceding and following the log keyword need to be included
+		 * on the log lines.
 		 */
 		prefix_len = kw - dl->line;
 		postfix_start = lp - dl->line;
 		postfix_len = dl->len - postfix_start;
+
+		/*
+		 * As mentioned just above, the original $Log$ line is the
+		 * template for leading/trailing characters.  However, dl->line
+		 * is about to be modified to expand the $Log$ keyword, which --
+		 * if there are trailing characters -- can alter the portions of
+		 * the line needed for the template.  Avoid this by making a
+		 * temporary copy of the template line.
+		 */
+		template_line = xmalloc(dl->len + 1, __func__);
+		memcpy(template_line, dl->line, dl->len);
+		template_line[dl->len] = '\0';
 
 		/*
 		 * Whatever "$Log...$" string we find needs to be replaced by
@@ -426,8 +439,8 @@ rcs_data_expand_log_keyword(const struct rcs_file *file,
 		/*
 		 * Generate the first line of the log message from the metadata.
 		 */
-		loghdr = log_header(ver, dl->line, prefix_len, postfix_start,
-			postfix_len);
+		loghdr = log_header(ver, template_line, prefix_len,
+			postfix_start, postfix_len);
 
 		/*
 		 * Add lines for the check-in comment.  The prefix must be added
@@ -435,7 +448,7 @@ rcs_data_expand_log_keyword(const struct rcs_file *file,
 		 */
 		if (*patch->log) {
 			/* Break the log (check-in comment) text into lines */
-			loglines = log_text_to_lines(patch->log, dl->line,
+			loglines = log_text_to_lines(patch->log, template_line,
 				prefix_len, postfix_start, postfix_len);
 
 			/* Make ll point at the last of the log lines */
@@ -457,12 +470,12 @@ rcs_data_expand_log_keyword(const struct rcs_file *file,
 				if (!pver || !ppatch)
 					break;
 
-				ll->next = log_header(pver, dl->line,
+				ll->next = log_header(pver, template_line,
 					prefix_len, postfix_start, postfix_len);
 				ll = ll->next;
 				ll->next = log_text_to_lines(ppatch->log,
-					dl->line, prefix_len, postfix_start,
-					postfix_len);
+					template_line, prefix_len,
+					postfix_start, postfix_len);
 				for (; ll->next; ll = ll->next)
 					;
 			}
@@ -481,6 +494,8 @@ rcs_data_expand_log_keyword(const struct rcs_file *file,
 			dl->next = loghdr;
 			dl = loghdr;
 		}
+
+		free(template_line);
 	}
 }
 
