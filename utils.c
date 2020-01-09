@@ -165,28 +165,35 @@ xstrdup(const char *s, const char *legend)
 	return ret;
 }
 
-/* get allocated string buffer containing a range of data from a file */
-char *
-file_range_as_string(const char *path, size_t offset, size_t length)
+/* buffer a file */
+unsigned char *
+file_buffer(const char *path, size_t *size)
 {
-	char *fdata;
+	struct stat info;
+	unsigned char *fdata;
 	FILE *f;
 
+	if (stat(path, &info))
+		fatal_system_error("cannot stat file at \"%s\"", path);
+	if (!S_ISREG(info.st_mode))
+		fatal_error("not a regular file: \"%s\"", path);
+
+	*size = info.st_size;
+
 	if (!(f = fopen(path, "r")))
-		fatal_system_error("cannot open \"%s\"", path);
+		fatal_system_error("cannot open file at \"%s\"", path);
 
-	if (fseek(f, offset, SEEK_SET))
-		fatal_system_error("cannot seek within \"%s\"", path);
-
-	fdata = xmalloc(length + 1, __func__); /* +1 for NUL terminator */
+	/*
+	 * The +1 is for file_as_string(), which uses this function to read the
+	 * file data but wants an extra byte for a NUL terminator.
+	 */
+	fdata = xmalloc(info.st_size + 1, __func__);
 
 	errno = 0;
-	if (fread(fdata, 1, length, f) != length)
+	if (fread(fdata, 1, info.st_size, f) != info.st_size)
 		fatal_system_error("cannot read from \"%s\"", path);
 
 	fclose(f);
-
-	fdata[length] = '\0'; /* NUL-terminate the string. */
 
 	return fdata;
 }
@@ -195,14 +202,18 @@ file_range_as_string(const char *path, size_t offset, size_t length)
 char *
 file_as_string(const char *path)
 {
-	struct stat info;
+	char *fdata;
+	size_t size;
 
-	if (stat(path, &info))
-		fatal_system_error("cannot stat \"%s\"", path);
-	if (!S_ISREG(info.st_mode))
-		fatal_error("not a regular file: \"%s\"", path);
+	fdata = (char *)file_buffer(path, &size);
 
-	return file_range_as_string(path, 0, info.st_size);
+	/*
+	 * NUL-terminate the string.  file_buffer() allocated an extra byte in
+	 * the buffer so that it's safe to do this.
+	 */
+	fdata[size] = '\0';
+
+	return fdata;
 }
 
 /* get the mtime (time of last modification) of a file */
@@ -278,6 +289,10 @@ rcs_file_find_version(const struct rcs_file *file,
 {
 	struct rcs_version *v;
 
+	if (file->dummy)
+		fatal_error("internal error: version search within dummy "
+			"file \"%s\"", file->name);
+
 	for (v = file->versions; v; v = v->next)
 		if (rcs_number_equal(&v->number, revnum))
 			return v;
@@ -294,6 +309,10 @@ rcs_file_find_patch(const struct rcs_file *file,
 	const struct rcs_number *revnum, bool fatalerr)
 {
 	struct rcs_patch *p;
+
+	if (file->dummy)
+		fatal_error("internal error: patch search within dummy "
+			"file \"%s\"", file->name);
 
 	for (p = file->patches; p; p = p->next)
 		if (rcs_number_equal(&p->number, revnum))

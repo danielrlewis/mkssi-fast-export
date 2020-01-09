@@ -109,14 +109,22 @@ struct rcs_file {
 	struct rcs_file *hash_next; /* next in hash table bucket */
 	char *name; /* relative file path (without project directory) */
 	char *master_name; /* path to RCS master file */
-	bool binary, corrupt;
+	bool binary, corrupt, dummy;
 
 	/*
-	 * For text files, if listed in the project with member type "other",
-	 * MKSSI seems to grab rev. 1.1 without doing RCS keyword expansion.
-	 * Setting has_member_type_other to true lets us know we need to export
-	 * a version of rev. 1.1 without keyword expansion; the blob marker for
-	 * it is saved in other_blob_mark.
+	 * Files listed in the project with member type "other":
+	 *
+	 * For text files, MKSSI seems to grab rev. 1.1 without doing RCS
+	 * keyword expansion.  Setting has_member_type_other to true lets us
+	 * know we need to export a version of rev. 1.1 without keyword
+	 * expansion; the blob marker for it is saved in other_blob_mark.
+	 *
+	 * For binary files, MKSSI seems to grab the contents of the file from
+	 * the project directory.  The file is not required to exist in the RCS
+	 * directory.  However, if the project directory isn't available, we
+	 * will use the head revision from the RCS directory, which is often
+	 * (not always) identical to the copy that would be in the project
+	 * directory.
 	 */
 	bool has_member_type_other;
 	unsigned long other_blob_mark;
@@ -222,6 +230,7 @@ extern const char *proj_projectvpj_name;
 extern struct rcs_file *files;
 extern struct rcs_file *file_hash_table[1024];
 extern struct rcs_file *corrupt_files;
+extern struct rcs_file *dummy_files;
 extern struct rcs_file *project; /* RCS-revisioned project.pj */
 extern struct mkssi_branch *project_branches;
 extern struct rcs_number trunk_branch;
@@ -266,7 +275,7 @@ void rcs_file_read_all_revisions(struct rcs_file *file,
 /* rcs-binary.c */
 typedef void rcs_revision_binary_data_handler_t(struct rcs_file *file,
 	const struct rcs_number *revnum, const unsigned char *data,
-	size_t datalen);
+	size_t datalen, bool member_type_other);
 void rcs_binary_file_read_all_revisions(struct rcs_file *file,
 	rcs_revision_binary_data_handler_t *callback);
 
@@ -320,7 +329,7 @@ void *xmalloc(size_t size, const char *legend);
 void *xcalloc(size_t nmemb, size_t size, const char *legend);
 void *xrealloc(void *ptr, size_t size, const char *legend);
 char *xstrdup(const char *s, const char *legend);
-char *file_range_as_string(const char *path, size_t offset, size_t length);
+unsigned char *file_buffer(const char *path, size_t *size);
 char *file_as_string(const char *path);
 time_t file_mtime(const char *path);
 size_t parse_mkssi_branch_char(const char *s, int *cp);

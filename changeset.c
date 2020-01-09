@@ -54,12 +54,15 @@ find_updates(const struct rcs_file_revision *old,
 	for (o = old; o; o = o->next)
 		for (n = new; n; n = n->next)
 			if (o->file == n->file
-			 && !rcs_number_equal(&o->rev, &n->rev)) {
+			 && (!rcs_number_equal(&o->rev, &n->rev)
+			 || o->member_type_other != n->member_type_other)) {
 				change = xcalloc(1, sizeof *change, __func__);
 				change->file = n->file;
 				change->canonical_name = n->canonical_name;
 				change->oldrev = o->rev;
 				change->newrev = n->rev;
+				change->member_type_other =
+					n->member_type_other;
 				*prev_next = change;
 				prev_next = &change->next;
 			}
@@ -348,6 +351,9 @@ adjust_adds(struct file_change *adds, time_t old_date)
 	for (c = adds; c; c = c->next) {
 		prevrev = c->newrev;
 		for (;;) {
+			if (c->file->dummy)
+				break;
+
 			if (!rcs_number_decrement(&prevrev))
 				break; /* Nothing is previous to rev. 1.1 */
 
@@ -473,6 +479,9 @@ adjust_deletes(struct file_change *deletes, time_t new_date)
 	for (c = deletes; c; c = c->next) {
 		nextrev = c->oldrev;
 		for (;;) {
+			if (c->file->dummy)
+				break;
+
 			rcs_number_increment(&nextrev);
 			nextver = rcs_file_find_version(c->file, &nextrev,
 				false);
@@ -506,14 +515,28 @@ static struct file_change *
 remove_nonexistent_file_revisions(struct file_change *changes)
 {
 	struct file_change *c, **prev_next;
+	const struct rcs_file *f;
 	const struct rcs_version *ver;
 	const struct rcs_patch *patch;
+	bool keep;
 
 	prev_next = &changes;
 	for (c = *prev_next; c; c = *prev_next) {
-		ver = rcs_file_find_version(c->file, &c->newrev, false);
-		patch = rcs_file_find_patch(c->file, &c->newrev, false);
-		if (ver && patch)
+		f = c->file;
+
+		if (f->dummy)
+			/*
+			 * Keep files with no RCS master if there's a copy in
+			 * the project directory that we're exporting.
+			 */
+			keep = f->binary && f->other_blob_mark;
+		else {
+			ver = rcs_file_find_version(f, &c->newrev, false);
+			patch = rcs_file_find_patch(f, &c->newrev, false);
+			keep = ver && patch;
+		}
+
+		if (keep)
 			prev_next = &c->next;
 		else {
 			/*
@@ -522,8 +545,7 @@ remove_nonexistent_file_revisions(struct file_change *changes)
 			 */
 			fprintf(stderr, "warning: cannot export file \"%s\" "
 				"rev. %s, missing patch or version metadata\n",
-				c->file->name,
-				rcs_number_string_sb(&c->newrev));
+				f->name, rcs_number_string_sb(&c->newrev));
 			*prev_next = c->next;
 
 			if (c->buf)
@@ -589,6 +611,17 @@ compare_by_date(const struct file_change *a, const struct file_change *b)
 {
 	struct rcs_version *aver, *bver;
 
+	/*
+	 * Dummy files have no RCS metadata and thus no dates.  Sort dummy files
+	 * after normal files.
+	 */
+	if (!a->file->dummy && b->file->dummy)
+		return -1;
+	if (a->file->dummy && !b->file->dummy)
+		return 1;
+	if (a->file->dummy && b->file->dummy)
+		goto name; /* Both dummy, sort by name. */
+
 	aver = rcs_file_find_version(a->file, &a->newrev, true);
 	bver = rcs_file_find_version(b->file, &b->newrev, true);
 	if (aver->date.value < bver->date.value)
@@ -596,6 +629,7 @@ compare_by_date(const struct file_change *a, const struct file_change *b)
 	if (aver->date.value > bver->date.value)
 		return 1;
 
+name:
 	/* If the timestamp is the same for some reason, sort by name. */
 	return compare_by_name(a, b);
 }

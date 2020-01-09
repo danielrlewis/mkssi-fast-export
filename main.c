@@ -20,6 +20,7 @@ const char *proj_projectvpj_name; /* project.vpj name in proj directory */
 struct rcs_file *files;
 struct rcs_file *file_hash_table[1024];
 struct rcs_file *corrupt_files;
+struct rcs_file *dummy_files; /* "Other" files with no RCS masters */
 struct rcs_file *project; /* RCS project.pj */
 struct mkssi_branch *project_branches;
 struct rcs_number trunk_branch; /* --trunk-branch */

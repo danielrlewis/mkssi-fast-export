@@ -171,6 +171,46 @@ rcs_file_find(const char *name)
 	return NULL;
 }
 
+/* find or add a file to the list of "dummy" files (no RCS masters) */
+static struct rcs_file *
+rcs_file_dummy_find_or_add(const char *name)
+{
+	struct rcs_file *f;
+
+	/* Search for the dummy file in the list */
+	for (f = dummy_files; f; f = f->next)
+		if (!strcasecmp(f->name, name))
+			return f;
+
+	/* Not on list, create a new dummy file. */
+	f = xcalloc(1, sizeof *f, __func__);
+	f->dummy = true;
+	f->name = xstrdup(name, __func__);
+
+	/*
+	 * File has no revision number, but pretend it's rev. 1.1 since this
+	 * gets printed in commit messages.
+	 */
+	f->head.n[0] = 1;
+	f->head.n[1] = 1;
+	f->head.c = 2;
+
+	/*
+	 * There is no way to know whether a dummy file is a binary file, since
+	 * that information is stored in the missing RCS master.  However,
+	 * treating the dummy file as a binary file is convenient, since it
+	 * allows exporting the copy of the file in the project directory (if it
+	 * exists).
+	 */
+	f->binary = true;
+
+	/* Add new dummy file to the list of dummy files */
+	f->next = dummy_files;
+	dummy_files = f;
+
+	return f;
+}
+
 /* fix inconsistent directory name capitalization */
 static void
 fix_directory_capitalization(const struct rcs_file_revision *frevs)
@@ -338,8 +378,10 @@ project_revision_read_files(const char *pjdata)
 			 * rare, and related to deleting and re-adding files.
 			 *
 			 * In the observed cases (small sample size), if the
-			 * file is a binary file, MKSSI grabs the head revision;
-			 * if it is a text file, it grabs rev. 1.1 without doing
+			 * file is a binary file, MKSSI grabs the copy of the
+			 * file in the project directory (which is sometimes,
+			 * but not always, identical to the head revision); if
+			 * it is a text file, it grabs rev. 1.1 without doing
 			 * RCS keyword expansion.  This seems strange so perhaps
 			 * there is actually another rule at play.
 			 */
@@ -360,11 +402,21 @@ project_revision_read_files(const char *pjdata)
 		frev = xcalloc(1, sizeof *frev, __func__);
 		file = rcs_file_find(file_path);
 		if (!file) {
-			fprintf(stderr, "warning: ignoring file without RCS "
-				" master file:\n");
-			fprintf(stderr, "\t%s\n", errline);
-			free(frev);
-			continue;
+			if (revnum.c) {
+				fprintf(stderr, "warning: ignoring file "
+					"without RCS master file:\n");
+				fprintf(stderr, "\t%s\n", errline);
+				free(frev);
+				continue;
+			}
+
+			/*
+			 * Files with member type "other" can be exported even
+			 * when the RCS file is missing.  We use a dummy file
+			 * structure to make that work with the rest of this
+			 * program.
+			 */
+			file = rcs_file_dummy_find_or_add(file_path);
 		}
 		if (file->corrupt) {
 			free(frev);
@@ -373,22 +425,31 @@ project_revision_read_files(const char *pjdata)
 		frev->canonical_name = xstrdup(file_path, __func__);
 		if (revnum.c)
 			frev->rev = revnum;
-		else if (file->binary)
-			frev->rev = file->head;
-		else {
-			/* rev. 1.1 */
-			frev->rev.n[0] = 1;
-			frev->rev.n[1] = 1;
-			frev->rev.c = 2;
-
+		else { /* "Other" member type */
 			/*
-			 * MKSSI does not seem to expand RCS keywords when it
-			 * gets rev. 1.1 for an "other" member type.  That means
-			 * we need to export a special edition of rev. 1.1 w/out
-			 * keyword expansion.
+			 * Flag this as the "other" type so that we can export
+			 * the special binary blobs for them.
 			 */
 			frev->member_type_other = true;
 			file->has_member_type_other = true;
+
+			/*
+			 * For binary files, we want the copy of the file in the
+			 * project directory.  However, if the project directory
+			 * isn't available, we will substitute the head
+			 * revision.
+			 *
+			 * For text files, we want rev. 1.1 without RCS keyword
+			 * expansion.
+			 */
+			if (file->binary)
+				frev->rev = file->head;
+			else {
+				/* rev. 1.1 */
+				frev->rev.n[0] = 1;
+				frev->rev.n[1] = 1;
+				frev->rev.c = 2;
+			}
 		}
 		frev->file = file;
 		*prev = frev;
@@ -575,6 +636,9 @@ mark_checkpointed_revisions(const struct rcs_file_revision *frevs)
 	const struct rcs_file_revision *frev;
 
 	for (frev = frevs; frev; frev = frev->next) {
+		if (frev->file->dummy)
+			continue;
+
 		ver = rcs_file_find_version(frev->file, &frev->rev, false);
 		if (ver)
 			ver->checkpointed = true;

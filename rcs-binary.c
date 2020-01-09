@@ -377,7 +377,19 @@ apply_patches_and_emit(rcs_revision_binary_data_handler_t *callback,
 			data = &p->text;
 
 		/* Pass the revision data to the callback */
-		callback(file, &p->ver->number, data->buf, data->len);
+		callback(file, &p->ver->number, data->buf, data->len, false);
+
+		/*
+		 * Binary files with member type "other" should use the copy of
+		 * the file in the project directory.  If the other blob mark is
+		 * still zero, however, then either the project directory is not
+		 * available or the file doesn't exist in the project directory.
+		 * In such cases, substitute the head revision from the RCS
+		 * directory.
+		 */
+		if (file->has_member_type_other && !file->other_blob_mark &&
+		 rcs_number_equal(&p->ver->number, &file->head))
+			file->other_blob_mark = p->ver->blob_mark;
 
 		/* Iterate through all branches which start at this revision */
 		for (bp = p->branches; bp; bp = bp->branch_next) {
@@ -401,12 +413,47 @@ apply_patches_and_emit(rcs_revision_binary_data_handler_t *callback,
 	}
 }
 
+/* export file from project directory (for "other" member type) */
+static void
+export_projdir_revision(struct rcs_file *file,
+	rcs_revision_binary_data_handler_t *callback)
+{
+	struct stat info;
+	char *path;
+	unsigned char *fdata;
+	size_t flen;
+
+	if (!mkssi_proj_dir_path)
+		return;
+
+	path = sprintf_alloc("%s/%s", mkssi_proj_dir_path, file->name);
+
+	/* If the file exists in the project directory... */
+	if (!stat(path, &info)) {
+		fdata = file_buffer(path, &flen);
+		callback(file, &file->head, fdata, flen, true);
+		free(fdata);
+	}
+	free(path);
+}
+
 /* read every RCS revision for a binary file, passing data to the callback */
 void
 rcs_binary_file_read_all_revisions(struct rcs_file *file,
 	rcs_revision_binary_data_handler_t *callback)
 {
 	struct rcs_binary_patch_buffer *patches;
+
+	/*
+	 * Special handling for binary files with member type "other": export
+	 * the version of the file in the project directory.
+	 */
+	if (file->has_member_type_other)
+		export_projdir_revision(file, callback);
+
+	/* Dummy files have no RCS metadata, so nothing else can be exported. */
+	if (file->dummy)
+		return;
 
 	/* Read every patch. */
 	patches = read_patches(file);

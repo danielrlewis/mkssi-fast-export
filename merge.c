@@ -57,18 +57,21 @@ commit_msg_adds(const struct file_change *adds)
 	else
 		msg = sprintf_alloc("Add file %s\n\n", adds->file->name);
 
-	patch = rcs_file_find_patch(adds->file, &adds->newrev, true);
-	if (patch->missing) {
-		if (count > 1)
-			fatal_error("internal error: merged adds with missing "
-				"RCS patches");
+	if (!adds->file->dummy) {
+		patch = rcs_file_find_patch(adds->file, &adds->newrev, true);
+		if (patch->missing) {
+			if (count > 1)
+				fatal_error("internal error: merged adds with "
+					"missing RCS patches");
 
-		msg = sprintf_alloc_append(msg, "%s\n", msg_missing);
+			msg = sprintf_alloc_append(msg, "%s\n", msg_missing);
+		}
 	}
 
 	for (a = adds; a; a = a->next)
-		msg = sprintf_alloc_append(msg, PREFIX "add %s rev. %s\n",
-			a->file->name, rcs_number_string_sb(&a->newrev));
+		msg = sprintf_alloc_append(msg, PREFIX "add %s rev. %s%s\n",
+			a->file->name, rcs_number_string_sb(&a->newrev),
+			a->member_type_other ? " (\"other\")" : "");
 
 	return msg;
 }
@@ -160,9 +163,11 @@ commit_msg_updates(const struct file_change *updates)
 		rcs_number_string(&u->newrev, revstr_new, sizeof revstr_new);
 		rcs_number_string(&u->oldrev, revstr_old, sizeof revstr_old);
 		label = file_revision_label(u->file, &u->newrev);
-		msg = sprintf_alloc_append(msg, PREFIX "check-in %s rev. %s "
+		msg = sprintf_alloc_append(msg, PREFIX "check-in %s rev. %s%s "
 			"(was rev. %s)%s%s\n", u->file->name,
-			revstr_new, revstr_old,
+			revstr_new,
+			u->member_type_other ? " (\"other\")" : "",
+			revstr_old,
 			label ? " labeled " : "",
 			label ? label : "");
 	}
@@ -290,7 +295,7 @@ explicitly rename the affected files.\n";
 
 /* merge adds into commits */
 static struct git_commit *
-merge_adds(const char *branch, struct file_change *add_list)
+merge_adds(const char *branch, struct file_change *add_list, time_t cp_date)
 {
 	struct file_change *add, *a, **old_prev_next, **new_prev_next;
 	struct git_commit *head, **prev_next, *c;
@@ -307,17 +312,28 @@ merge_adds(const char *branch, struct file_change *add_list)
 	for (add = add_list; add; add = add_list) {
 		add_list = add->next;
 
-		ver = rcs_file_find_version(add->file, &add->newrev, true);
-		patch = rcs_file_find_patch(add->file, &add->newrev, true);
+		old_prev_next = &add_list;
+		new_prev_next = &add->next;
 
 		c = xcalloc(1, sizeof *c, __func__);
 		c->branch = branch;
-		c->committer = author_map(ver->author);
-		c->date = ver->date.value; /* See comment below on timestamps */
 		c->changes.adds = add;
 
-		old_prev_next = &add_list;
-		new_prev_next = &add->next;
+		/*
+		 * Dummy files have no RCS metadata, so use the unknown author
+		 * and the timestamp of the subsequent checkpoint.
+		 */
+		if (add->file->dummy) {
+			c->committer = &unknown_author;
+			c->date = cp_date;
+			goto skip_merge; /* Don't merge with other adds. */
+		}
+
+		ver = rcs_file_find_version(add->file, &add->newrev, true);
+		patch = rcs_file_find_patch(add->file, &add->newrev, true);
+
+		c->committer = author_map(ver->author);
+		c->date = ver->date.value; /* See comment below on timestamps */
 
 		/*
 		 * If the file to be added has no RCS patch, don't merge it with
@@ -327,6 +343,10 @@ merge_adds(const char *branch, struct file_change *add_list)
 			goto skip_merge;
 
 		for (a = add_list; a; a = a->next) {
+			/* Don't merge this add with an add of a dummy file. */
+			if (a->file->dummy)
+				continue;
+
 			add_ver = rcs_file_find_version(a->file, &a->newrev,
 				true);
 			add_patch = rcs_file_find_patch(a->file, &a->newrev,
@@ -576,7 +596,7 @@ merge_changeset_into_commits(const char *branch,
 	rename_commit = merge_renames(branch, changes->renames, cp_date);
 	changes->renames = NULL;
 
-	add_commits = merge_adds(branch, changes->adds);
+	add_commits = merge_adds(branch, changes->adds, cp_date);
 	changes->adds = NULL;
 
 	update_commits = merge_updates(branch, changes->updates);

@@ -267,7 +267,7 @@ export_revision_blob(struct rcs_file *file, const struct rcs_number *revnum,
 static void
 export_binary_revision_blob(struct rcs_file *file,
 	const struct rcs_number *revnum, const unsigned char *data,
-	size_t datalen)
+	size_t datalen, bool member_type_other)
 {
 	struct rcs_version *ver;
 
@@ -275,13 +275,23 @@ export_binary_revision_blob(struct rcs_file *file,
 	 * Put a comment in the stream which identifies the blob.  This is only
 	 * for debugging.
 	 */
-	printf("# %s rev. %s\n", file->name, rcs_number_string_sb(revnum));
+	printf("# %s rev. %s%s\n", file->name, rcs_number_string_sb(revnum),
+		member_type_other ? " (other)" : "");
 
 	export_blob(data, datalen);
 
-	ver = rcs_file_find_version(file, revnum, true);
-	ver->blob_mark = blob_mark_counter; /* Save the mark */
-	ver->executable = looks_like_executable(file, (const char *)data);
+	if (!file->dummy) {
+		ver = rcs_file_find_version(file, revnum, true);
+		ver->executable = looks_like_executable(file, (const char *)data);
+
+		/* Save the mark */
+		if (!member_type_other)
+			ver->blob_mark = blob_mark_counter;
+	}
+
+	/* Save the mark */
+	if (member_type_other)
+		file->other_blob_mark = blob_mark_counter;
 }
 
 /* export blobs for every revision of every file */
@@ -318,6 +328,18 @@ export_blobs(void)
 			progress_printed = progress;
 		}
 	}
+
+	/*
+	 * Export blobs for "dummy" files: files which exist in the project
+	 * directory but not the RCS directory, _and_ which have member type
+	 * "other" which allows them to be checked-out despite the lack of an
+	 * RCS master.
+	 */
+	if (dummy_files)
+		export_progress("exporting dummy file revision blobs");
+	for (f = dummy_files; f; f = f->next)
+		rcs_binary_file_read_all_revisions(f,
+			export_binary_revision_blob);
 }
 
 /* export file renames */
@@ -335,14 +357,28 @@ export_filerenames(const struct file_change *renames)
 static void
 export_filemodifies(const struct file_change *mods)
 {
+	const int fperm = 0644, xperm = 0755;
+	int perm;
 	const struct file_change *m;
 	const struct rcs_version *ver;
+	unsigned long mark;
 
 	for (m = mods; m; m = m->next) {
-		ver = rcs_file_find_version(m->file, &m->newrev, true);
-		printf("M %o :%lu %s\n", ver->executable ? 0755 : 0644,
-			m->member_type_other ? m->file->other_blob_mark :
-			ver->blob_mark, m->canonical_name);
+		if (m->file->dummy) {
+			if (!m->member_type_other)
+				fatal_error("internal error: modifying dummy "
+					"file for non-other member archive");
+
+			perm = fperm;
+			mark = m->file->other_blob_mark;
+		} else {
+			ver = rcs_file_find_version(m->file, &m->newrev, true);
+			perm = ver->executable ? xperm : fperm;
+			mark = m->member_type_other ? m->file->other_blob_mark :
+				ver->blob_mark;
+		}
+
+		printf("M %o :%lu %s\n", perm, mark, m->canonical_name);
 	}
 }
 
