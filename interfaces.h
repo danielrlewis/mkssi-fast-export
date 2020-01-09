@@ -103,6 +103,13 @@ struct rcs_patch {
 	struct rcs_text text;
 };
 
+/* an RCS lock structure */
+struct rcs_lock {
+	struct rcs_lock *next;
+	char *locker; /* username of user who holds the lock */
+	struct rcs_number number; /* revision number that's locked */
+};
+
 /* this represents the entire metadata content of an RCS master file */
 struct rcs_file {
 	struct rcs_file *next; /* next in complete list */
@@ -131,6 +138,7 @@ struct rcs_file {
 
 	/* RCS metadata */
 	struct rcs_number head, branch;
+	struct rcs_lock *locks;
 	struct rcs_symbol *symbols;
 	struct rcs_version *versions;
 	struct rcs_patch *patches;
@@ -243,6 +251,7 @@ void import(void);
 struct rcs_number lex_number(const char *s);
 struct rcs_timestamp lex_date(const struct rcs_number *n, void *yyscanner,
 	const struct rcs_file *file);
+char *lex_locker(const char *locker);
 
 /* project.c */
 void project_read_checkpointed_revisions(void);

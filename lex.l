@@ -284,6 +284,32 @@ lex_date(const struct rcs_number *n, yyscan_t yyscanner,
 	return ts;
 }
 
+/* extract a username from an MKSSI locker string */
+char *
+lex_locker(const char *locker)
+{
+	const char *p;
+	char *usr;
+	size_t len;
+
+	/*
+	 * MKSSI locker strings are a username followed by a timestamp in
+	 * parentheses, for example:
+	 *
+	 * johndoe(2020.01.01.00.00.00)
+	 *
+	 * For now, we don't care about the timestamp.  We only need the
+	 * username.
+	 */
+	for (p = locker; *p && *p != '('; ++p);
+		;
+	len = p - locker;
+	usr = xmalloc(len+1, __func__);
+	memcpy(usr, locker, len);
+	usr[len] = '\0';
+	return usr;
+}
+
 #define SUFFIX(a, s) \
 	((strlen(a) >= strlen(s)) && !strcmp((a) + strlen(a) - strlen(s), (s)))
 

@@ -28,6 +28,7 @@ extern YY_DECL;
 	struct rcs_number number;
 	struct rcs_timestamp date;
 	struct rcs_symbol *symbol;
+	struct rcs_lock *lock;
 	struct rcs_version *version;
 	struct rcs_version **vlist;
 	struct rcs_patch *patch;
@@ -75,6 +76,7 @@ extern YY_DECL;
 %type <text> text
 %type <s> log name author state
 %type <symbol> symbollist symbol symbols
+%type <lock> lock locks
 %type <version> revision
 %type <vlist> revisions
 %type <date> date
@@ -97,6 +99,7 @@ header : HEAD opt_number SEMI
 	| symbollist
 		{ rcsfile->symbols = $1; }
 	| LOCKS locks SEMI lock_type
+		{ rcsfile->locks = $2; }
 	| COMMENT DATA SEMI
 		{ free($2); }
 	| format
@@ -104,9 +107,17 @@ header : HEAD opt_number SEMI
 		{ rcsfile->corrupt = true; YYABORT; }
 	;
 locks : locks lock
+		{ $2->next = $1; $$ = $2; }
 	|
+		{ $$ = NULL; }
 	;
 lock : TOKEN COLON NUMBER
+		{
+			$$ = xcalloc(1, sizeof(struct rcs_lock),
+				"making lock");
+			$$->locker = lex_locker($1);
+			$$->number = $3;
+		}
 	;
 lock_type : STRICT SEMI
 	|
@@ -141,7 +152,7 @@ name : TOKEN
 		}
 	;
 revisions : revisions revision
-		{ *$1 = $2; $$ = &$2->next;}
+		{ *$1 = $2; $$ = &$2->next; }
 	|
 		{ $$ = &rcsfile->versions; }
 	;

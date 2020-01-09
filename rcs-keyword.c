@@ -67,6 +67,18 @@ rcs_data_reescape_ats(struct rcs_line *dlines)
 	}
 }
 
+/* search for an RCS lock for a version of a file */
+static const struct rcs_lock *
+lock_find(const struct rcs_file *file, const struct rcs_version *ver)
+{
+	const struct rcs_lock *l;
+
+	for (l = file->locks; l; l = l->next)
+		if (rcs_number_equal(&l->number, &ver->number))
+			return l;
+	return NULL;
+}
+
 /* signature for a keyword expander function */
 typedef char *(keyword_expander_t)(const struct rcs_file *file,
 	const struct rcs_version *ver);
@@ -111,24 +123,29 @@ expanded_header_str(const struct rcs_file *file, const struct rcs_version *ver)
 static char *
 expanded_id_str(const struct rcs_file *file, const struct rcs_version *ver)
 {
-	return sprintf_alloc("$Id: %s %s %s %s %s $", path_to_name(file->name),
+	const struct rcs_lock *lock;
+
+	/* If the file is locked, $Id$ includes the locker username. */
+	lock = lock_find(file, ver);
+
+	return sprintf_alloc("$Id: %s %s %s %s %s%s%s $", path_to_name(file->name),
 		rcs_number_string_sb(&ver->number), ver->date.string,
-		ver->author, ver->state);
+		ver->author, ver->state,
+		lock ? " " : "",
+		lock ? lock->locker : "");
 }
 
 /* generate an expanded $Locker$ keyword string */
 static char *
 expanded_locker_str(const struct rcs_file *file, const struct rcs_version *ver)
 {
-	/*
-	 * NOTE!  This expansion is presumably only correct for unlocked files.
-	 * Something like "$Locker: username $" would be expected for locked
-	 * files.  Our RCS file parsing is currently ignoring the locks, so we
-	 * don't know whether the file is locked or, if it is, who locked it.
-	 * If this keyword ever shows up in a locked file, something will need
-	 * to be done about that.
-	 */
-	return xstrdup("$Locker: $", __func__);
+	const struct rcs_lock *lock;
+
+	lock = lock_find(file, ver);
+	if (!lock)
+		return xstrdup("$Locker: $", __func__);
+
+	return sprintf_alloc("$Locker: %s $", lock->locker);
 }
 
 /* generate an expanded $ProjectName$ keyword string */
