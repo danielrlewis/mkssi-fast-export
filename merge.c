@@ -55,7 +55,7 @@ commit_msg_adds(const struct file_change *adds)
 	if (count > 1)
 		msg = sprintf_alloc("Add %u files\n\n", count);
 	else
-		msg = sprintf_alloc("Add file %s\n\n", adds->file->name);
+		msg = sprintf_alloc("Add file %s\n\n", adds->canonical_name);
 
 	if (!adds->file->dummy) {
 		patch = rcs_file_find_patch(adds->file, &adds->newrev, true);
@@ -70,7 +70,7 @@ commit_msg_adds(const struct file_change *adds)
 
 	for (a = adds; a; a = a->next)
 		msg = sprintf_alloc_append(msg, PREFIX "add %s rev. %s%s\n",
-			a->file->name, rcs_number_string_sb(&a->newrev),
+			a->canonical_name, rcs_number_string_sb(&a->newrev),
 			a->member_type_other ? " (\"other\")" : "");
 
 	return msg;
@@ -115,7 +115,7 @@ commit_msg_updates(const struct file_change *updates)
 			fatal_error("internal error: merged reversions");
 
 		msg = sprintf_alloc("Revert file %s to rev. %s\n\n",
-			u->file->name, rcs_number_string_sb(&u->newrev));
+			u->canonical_name, rcs_number_string_sb(&u->newrev));
 	} else {
 		/* All the updates should have the same check-in comment. */
 		log = NULL;
@@ -152,7 +152,7 @@ commit_msg_updates(const struct file_change *updates)
 			msg = sprintf_alloc("Update %u files\n\n", count);
 		else
 			msg = sprintf_alloc("Update file %s to rev. %s\n\n",
-				updates->file->name,
+				updates->canonical_name,
 				rcs_number_string_sb(&updates->newrev));
 
 		if (patch->missing)
@@ -164,7 +164,7 @@ commit_msg_updates(const struct file_change *updates)
 		rcs_number_string(&u->oldrev, revstr_old, sizeof revstr_old);
 		label = file_revision_label(u->file, &u->newrev);
 		msg = sprintf_alloc_append(msg, PREFIX "check-in %s rev. %s%s "
-			"(was rev. %s)%s%s\n", u->file->name,
+			"(was rev. %s)%s%s\n", u->canonical_name,
 			revstr_new,
 			u->member_type_other ? " (\"other\")" : "",
 			revstr_old,
@@ -195,11 +195,12 @@ commit_msg_deletes(const struct file_change *deletes)
 	if (count > 1)
 		msg = sprintf_alloc("Delete %u files\n\n", count);
 	else
-		msg = sprintf_alloc("Delete file %s\n\n", deletes->file->name);
+		msg = sprintf_alloc("Delete file %s\n\n",
+			deletes->canonical_name);
 
 	for (d = deletes; d; d = d->next)
 		msg = sprintf_alloc_append(msg, PREFIX "delete %s rev. %s\n",
-			d->file->name, rcs_number_string_sb(&d->oldrev));
+			d->canonical_name, rcs_number_string_sb(&d->oldrev));
 
 	return msg;
 }
