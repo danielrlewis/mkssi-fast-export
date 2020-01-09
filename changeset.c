@@ -698,22 +698,6 @@ changeset_build(const struct rcs_file_revision *old, time_t old_date,
 	dir_renames = find_implicit_dir_renames(old, new);
 	file_renames = find_implicit_file_renames(old, new, dir_renames);
 
-	changes->adds = find_adds(old, new);
-	changes->updates = find_updates(old, new);
-	changes->deletes = find_deletes(old, new);
-
-	extra_updates = adjust_adds(changes->adds, old_date);
-	change_list_append(&changes->updates, extra_updates);
-
-	extra_updates = adjust_deletes(changes->deletes, new_date);
-	change_list_append(&changes->updates, extra_updates);
-
-	extra_updates = adjust_updates(changes->updates);
-	change_list_append(&changes->updates, extra_updates);
-
-	changes->adds = remove_nonexistent_file_revisions(changes->adds);
-	changes->updates = remove_nonexistent_file_revisions(changes->updates);
-
 	/*
 	 * Code elsewhere assumes that directory renames will occur prior to
 	 * file renames.
@@ -723,7 +707,22 @@ changeset_build(const struct rcs_file_revision *old, time_t old_date,
 	changes->renames = dir_renames;
 	change_list_append(&changes->renames, file_renames);
 
+	changes->adds = find_adds(old, new);
+	changes->updates = find_updates(old, new);
+	changes->deletes = find_deletes(old, new);
+
+	extra_updates = adjust_adds(changes->adds, old_date);
+	change_list_append(&changes->updates, extra_updates);
+
 	adjust_deletes_for_renames(changes->renames, changes->deletes);
+	extra_updates = adjust_deletes(changes->deletes, new_date);
+	change_list_append(&changes->updates, extra_updates);
+
+	extra_updates = adjust_updates(changes->updates);
+	change_list_append(&changes->updates, extra_updates);
+
+	changes->adds = remove_nonexistent_file_revisions(changes->adds);
+	changes->updates = remove_nonexistent_file_revisions(changes->updates);
 
 	changes->adds = sort_changes(changes->adds, compare_by_date);
 	changes->updates = sort_changes(changes->updates, compare_by_date);
