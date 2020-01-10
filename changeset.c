@@ -605,7 +605,7 @@ adjust_deletes_for_renames(const struct file_change *renames,
 static int
 compare_by_name(const struct file_change *a, const struct file_change *b)
 {
-	return strcasecmp(a->canonical_name, b->canonical_name);
+	return strcmp(a->canonical_name, b->canonical_name);
 }
 
 /* compare two changes by date for sorting purposes */
@@ -746,6 +746,13 @@ change_list_free(struct file_change *list)
 			free(c->buf);
 		free(c);
 	}
+}
+
+/* sort a list of changes by name */
+struct file_change *
+change_list_sort_by_name(struct file_change *list)
+{
+	return sort_changes(list, compare_by_name);
 }
 
 /* free a changeset */

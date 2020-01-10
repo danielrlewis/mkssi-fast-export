@@ -401,6 +401,13 @@ merge_adds(const char *branch, struct file_change *add_list, time_t cp_date)
 skip_merge:
 		*new_prev_next = NULL;
 
+		/*
+		 * Re-sort the adds within the commit, so that the changes will
+		 * be listed in the commit message in the same order as tools
+		 * like git diff and gitk will display.
+		 */
+		c->changes.adds = change_list_sort_by_name(c->changes.adds);
+
 		c->commit_msg = commit_msg_adds(c->changes.adds);
 
 		/* Append this commit to the list. */
@@ -546,6 +553,14 @@ merge_updates(const char *branch, struct file_change *update_list)
 			ver = rcs_file_find_version(u->file, &u->newrev, true);
 			c->date = max(c->date, ver->date.value);
 		}
+
+		/*
+		 * Re-sort the updates within the commit, so that the changes
+		 * will be listed in the commit message in the same order as
+		 * tools like git diff and gitk will display.
+		 */
+		c->changes.updates =
+			change_list_sort_by_name(c->changes.updates);
 
 		c->commit_msg = commit_msg_updates(c->changes.updates);
 

@@ -272,6 +272,7 @@ void changeset_build(const struct rcs_file_revision *old,
 	time_t old_date, const struct rcs_file_revision *new, time_t new_date,
 	struct file_change_lists *changes);
 void changeset_free(struct file_change_lists *changes);
+struct file_change *change_list_sort_by_name(struct file_change *list);
 
 /* merge.c */
 struct git_commit *merge_changeset_into_commits(const char *branch,
