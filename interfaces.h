@@ -139,6 +139,7 @@ struct rcs_file {
 	/* RCS metadata */
 	struct rcs_number head, branch;
 	struct rcs_lock *locks;
+	char *reference_subdir;
 	struct rcs_symbol *symbols;
 	struct rcs_version *versions;
 	struct rcs_patch *patches;
@@ -334,6 +335,7 @@ char *sprintf_alloc_append(char *buf, const char *fmt, ...);
 uint32_t hash_string(const char *s);
 bool is_hex_digit(char c);
 const char *path_to_name(const char *path);
+char *path_parent_dir(const char *path);
 void *xmalloc(size_t size, const char *legend);
 void *xcalloc(size_t nmemb, size_t size, const char *legend);
 void *xrealloc(void *ptr, size_t size, const char *legend);

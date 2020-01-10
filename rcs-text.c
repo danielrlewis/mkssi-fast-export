@@ -387,6 +387,15 @@ rcs_file_read_all_revisions(struct rcs_file *file,
 	struct rcs_patch_buffer *patches;
 
 	/*
+	 * The "store-by-reference" option is intended for binary files, but
+	 * nothing prevents it from being used with text files.  Not currently
+	 * implemented.
+	 */
+	if (file->reference_subdir)
+		fatal_error("unsupported feature: \"%s\" is a text file stored "
+			"by reference", file->name);
+
+	/*
 	 * Read every patch.  These must remain in memory until we are done
 	 * with the file, since portions of a patch (the inserted lines) are
 	 * incorporated into the text of subsequent revisions.

@@ -136,6 +136,76 @@ get_offset_length(const unsigned char *buf, size_t *off, size_t *len)
 	return (const unsigned char *)str - buf;
 }
 
+/* apply a patch for a binary file that is stored by reference */
+static void
+apply_reference_patch(const struct rcs_file *file,
+	struct rcs_binary_patch_buffer *pbuf, struct binary_data *data)
+{
+	char *master_dir_path, *refdir_path, *refrev_path;
+	struct stat info;
+	int fd;
+
+	/*
+	 * Ignore the patch text for now.  In the observed cases (a very small
+	 * number), the patch text starts with an "rN M" command, where the
+	 * meaning of N is unknown and M is the file size for the revision.  For
+	 * revisions other than the head revision, that is followed by a "d"
+	 * command which deletes the entirety of the previous revision; the "d"
+	 * command seems to work like it is implemented in apply_patch().
+	 * Finally, there is an "a" command which inserts the new data, with an
+	 * offset of byte 1 (the first byte) and a length of the file size for
+	 * the revision.  Unlike with apply_patch(), the "a" command has no
+	 * data, because it comes from the reference file.
+	 *
+	 * None of that needs to be implemented here, because returning the
+	 * contents of the reference file for each revision has the same effect
+	 * (at least in the observed cases).
+	 */
+
+	master_dir_path = path_parent_dir(file->master_name);
+	refdir_path = sprintf_alloc("%s/%s", master_dir_path,
+		file->reference_subdir);
+
+	if (stat(refdir_path, &info))
+		fatal_system_error("missing reference directory \"%s\" for "
+			" file \"%s\"", refdir_path, file->name);
+	if (!S_ISDIR(info.st_mode))
+		fatal_error("reference directory is not a directory: \"%s\"",
+			refdir_path);
+
+	refrev_path = sprintf_alloc("%s/%s", refdir_path,
+		rcs_number_string_sb(&pbuf->ver->number));
+
+	if (stat(refrev_path, &info)) {
+		/*
+		 * The reference file doesn't exist if the file is zero-sized
+		 * for that revision.
+		 */
+		if (errno == ENOENT) {
+			data->len = 0;
+			goto out;
+		}
+		fatal_system_error("could not stat \"%s\"", refrev_path);
+	}
+
+	buffer_grow(data, info.st_size);
+	data->len = info.st_size;
+
+	if ((fd = open(refrev_path, O_RDONLY)) == -1)
+		fatal_system_error("cannot open \"%s\"", refrev_path);
+
+	errno = 0;
+	if (read(fd, data->buf, data->len) != data->len)
+		fatal_system_error("cannot read from \"%s\"", refrev_path);
+
+	close(fd);
+
+out:
+	free(refrev_path);
+	free(refdir_path);
+	free(master_dir_path);
+}
+
 /* patch the preceding revision to yield the new revision */
 static void
 apply_patch(const struct rcs_file *file, struct rcs_binary_patch_buffer *pbuf,
@@ -151,6 +221,14 @@ apply_patch(const struct rcs_file *file, struct rcs_binary_patch_buffer *pbuf,
 	 */
 	if (pbuf->patch->missing)
 		return;
+
+	/*
+	 * If this file is stored by reference, there isn't really a patch at
+	 * all; each revision is stored as a separate file.  Handle that
+	 * separately.
+	 */
+	if (file->reference_subdir)
+		return apply_reference_patch(file, pbuf, data);
 
 	patch = &pbuf->text;
 
@@ -360,7 +438,18 @@ apply_patches_and_emit(rcs_revision_binary_data_handler_t *callback,
 	struct rcs_binary_patch_buffer *patches)
 {
 	struct rcs_binary_patch_buffer *p, *bp;
-	struct binary_data branch_data;
+	struct binary_data branch_data, ref_data;
+
+	/*
+	 * Files stored by reference don't have a head revision with the full
+	 * contents of the file.  So, instead of using the text of the head
+	 * revision as the initial data buffer, use an empty data buffer.
+	 */
+	if (file->reference_subdir && !data) {
+		data = &ref_data;
+		data->buf = NULL;
+		data->len = data->maxlen = 0;
+	}
 
 	for (p = patches; p; p = p->parent) {
 		if (data)

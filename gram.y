@@ -65,8 +65,10 @@ extern YY_DECL;
 %token LOG
 %token NEXT
 %token <number> NUMBER
+%token REFERENCE
 %token SEMI
 %token STATE
+%token STORAGE
 %token STRICT
 %token SYMBOLS
 %token TEXT
@@ -100,6 +102,7 @@ header : HEAD opt_number SEMI
 		{ rcsfile->symbols = $1; }
 	| LOCKS locks SEMI lock_type
 		{ rcsfile->locks = $2; }
+	| storage
 	| COMMENT DATA SEMI
 		{ free($2); }
 	| format
@@ -121,6 +124,10 @@ lock : TOKEN COLON NUMBER
 	;
 lock_type : STRICT SEMI
 	|
+	;
+storage : STORAGE REFERENCE TOKEN SEMI
+		{ rcsfile->reference_subdir = xstrdup($3, "refdir"); }
+	| STORAGE SEMI
 	;
 symbollist : SYMBOLS symbols SEMI
 		{ $$ = $2; }
@@ -224,6 +231,8 @@ log : LOG DATA
 		{ $$ = $2; }
 	;
 text : TEXT TEXT_DATA
+		{ $$ = $2; }
+	| REFERENCE TEXT_DATA
 		{ $$ = $2; }
 	;
 %%

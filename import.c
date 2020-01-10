@@ -58,6 +58,32 @@ is_encrypted_archive(FILE *f)
 	return encrypted;
 }
 
+/* skip the optional archive header in an RCS file */
+static void
+skip_archive_header(FILE *f)
+{
+	static const char archive_header[] = "--MKS-Archive--";
+	char buf[sizeof archive_header - 1];
+	int nl;
+
+	if (fread(buf, 1, sizeof buf, f) == sizeof buf
+	 && !memcmp(buf, archive_header, sizeof buf)) {
+		/* Expect the header to be followed by LF or CRLF. */
+		nl = fgetc(f);
+		if (nl == '\r')
+			nl = fgetc(f);
+		if (nl == '\n')
+			/*
+			 * The header exists; return without seeking back to the
+			 * beginning of the file.
+			 */
+			return;
+	}
+
+	/* Reset file position to start */
+	fseek(f, 0, SEEK_SET);
+}
+
 /* create placeholders for missing patches, starting at the given revision */
 static void
 create_missing_patches_from_rev(struct rcs_file *file,
@@ -152,6 +178,13 @@ import_rcs_file(const char *relative_path)
 	}
 
 	/*
+	 * Very rarely, MKSSI RCS files will start with a header line.  This
+	 * line is not in RCS format and will confuse the lexer/parser; so
+	 * skip over such lines, when present.
+	 */
+	skip_archive_header(in);
+
+	/*
 	 * Lexically analyze and parse the RCS master file, putting its data
 	 * into the rcs_file structure.  See lex.l and gram.y.
 	 */
@@ -178,12 +211,26 @@ out:
 	return file;
 }
 
+/* does a string end with the given postfix? */
+static bool
+str_ends_with(const char *str, const char *postfix, bool ignore_case)
+{
+	const char *pos;
+
+	if (strlen(str) < strlen(postfix))
+		return false;
+
+	pos = str + strlen(str) - strlen(postfix);
+
+	if (ignore_case)
+		return !strcasecmp(pos, postfix);
+	return !strcmp(pos, postfix);
+}
+
 /* should a given file be ignored during the import process? */
 static bool
 ignore_file(const char *name)
 {
-	const char *dotpj;
-
 	/* Ignore dot and dot-dot for obvious reasons */
 	if (!strcmp(name, ".") || !strcmp(name, ".."))
 		return true;
@@ -192,8 +239,7 @@ ignore_file(const char *name)
 	 * Ignore *.pj files: project.pj is imported separately, and other files
 	 * like "Copy of PROJECT.PJ" are not needed or wanted.
 	 */
-	dotpj = strcasestr(name, ".pj");
-	if (dotpj && !dotpj[3])
+	if (str_ends_with(name, ".pj", true))
 		return true;
 
 	/*
@@ -207,6 +253,14 @@ ignore_file(const char *name)
 	 && is_hex_digit(name[6]) && !strcmp(&name[7], ".000")) {
 		return true;
 	}
+
+	/*
+	 * Directories named mks.<archive_name>.revs are used to store file
+	 * revision data outside the RCS master.  Files in such directories
+	 * are not RCS files and should not be parsed at this point.
+	 */
+	if (!strncmp(name, "mks.", 4) && str_ends_with(name, ".revs", false))
+		return true;
 
 	return false;
 }

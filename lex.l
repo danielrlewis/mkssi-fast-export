@@ -26,13 +26,14 @@ YY_DECL;
 %option noyyget_out noyyset_out noyyget_lval noyyset_lval
 %option noyyget_lloc noyyset_lloc noyyget_debug noyyset_debug
 
-%s CONTENT SYMBOLSS SKIP AUTHORSS FORMATS
+%s CONTENT SYMBOLSS SKIP AUTHORSS STORAGES FORMATS
 %%
 <INITIAL>head BEGIN(CONTENT); return HEAD;
 <INITIAL>branch BEGIN(CONTENT); return BRANCH;
 <INITIAL>access return ACCESS;
 <INITIAL>symbols BEGIN(SYMBOLSS); return SYMBOLS;
 <INITIAL>locks BEGIN(CONTENT); return LOCKS;
+<INITIAL>storage BEGIN(STORAGES); return STORAGE;
 <INITIAL>comment BEGIN(CONTENT); return COMMENT;
 <INITIAL>date BEGIN(CONTENT); return DATE;
 <INITIAL>branches BEGIN(CONTENT); return BRANCHES;
@@ -42,6 +43,7 @@ YY_DECL;
 <INITIAL>state BEGIN(CONTENT); return STATE;
 <INITIAL>desc return DESC;
 <INITIAL>log return LOG;
+<INITIAL>reference BEGIN(SKIP); return REFERENCE;
 <INITIAL>ext return EXTENSION;
 <INITIAL>format BEGIN(FORMATS); return FORMAT;
 <INITIAL>text BEGIN(SKIP); return TEXT;
@@ -60,6 +62,7 @@ YY_DECL;
 		yylval->s = xstrdup(yytext, "lex.l:AUTHORSS");
 		return TOKEN;
 	}
+<STORAGES>reference BEGIN(CONTENT); return REFERENCE;
 <FORMATS>binary BEGIN(INITIAL); return FMTBINARY;
 <FORMATS>text BEGIN(INITIAL); return FMTTEXT;
 [0-9]+\.[0-9.]* {

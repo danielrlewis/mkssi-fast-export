@@ -116,6 +116,30 @@ path_to_name(const char *path)
 	return name;
 }
 
+/* get a parent directory path from a path */
+char *
+path_parent_dir(const char *path)
+{
+	const char *name;
+	size_t len;
+	char *dir_path;
+
+	/* For example: "a/b/c" yields "a/b", "a" yields "" */
+
+	/* Determine the length of the path, sans the final component */
+	name = path_to_name(path);
+	len = name - path;
+	if (len)
+		len--; /* Don't include path separator. */
+
+	/* Create a path buffer for the parent directory */
+	dir_path = xmalloc(len + 1, __func__);
+	memcpy(dir_path, path, len);
+	dir_path[len] = '\0';
+
+	return dir_path;
+}
+
 /* like malloc(), but abort on failure */
 void *
 xmalloc(size_t size, const char *legend)
