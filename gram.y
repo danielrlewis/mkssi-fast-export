@@ -1,4 +1,10 @@
-/* Bison/Yacc grammar for MKSSI-style RCS files */
+/*
+ * Copyright (c) 2006 by Keith Packard
+ * Copyright (c) 2017, 2020 Datalight, Inc.
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ *
+ * Bison/Yacc grammar for MKSSI-style RCS files.
+ */
 %{
 #include "interfaces.h"
 #include "gram.h"

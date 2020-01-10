@@ -1,4 +1,9 @@
-/* Entry point for mkssi-fast-export */
+/*
+ * Copyright (c) 2017, 2019-2020 Datalight, Inc.
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ *
+ * Entry point for mkssi-fast-export.
+ */
 #include <stdlib.h>
 #include <stdio.h>
 #include <sys/types.h>

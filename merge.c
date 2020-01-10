@@ -1,4 +1,9 @@
-/* Merge individual changes into commits */
+/*
+ * Copyright (c) 2017, 2019-2020 Datalight, Inc.
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ *
+ * Merge individual changes into commits.
+ */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2006 by Keith Packard
+ * Copyright (c) 2017, 2019-2020 Datalight, Inc.
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ *
+ * Types, macros, and prototypes.
+ */
 #ifndef INTERFACES_H
 #define INTERFACES_H
 

@@ -1,4 +1,10 @@
-/* Utilities for working with RCS revision numbers */
+/*
+ * Copyright (c) 2006 by Keith Packard
+ * Copyright (c) 2017, 2019 Datalight, Inc.
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ *
+ * Utilities for working with RCS revision numbers.
+ */
 #include <stdio.h>
 #include <string.h>
 #include "interfaces.h"
@@ -7,8 +13,8 @@
 bool
 rcs_number_equal(const struct rcs_number *n1, const struct rcs_number *n2)
 {
-    /* can use memcmp as struct rcs_number isn't padded */
-    return !memcmp(n1, n2, sizeof(short) * (1 + n1->c));
+	/* can use memcmp as struct rcs_number isn't padded */
+	return !memcmp(n1, n2, sizeof(short) * (1 + n1->c));
 }
 
 /* is num equal to spec, up through the end of spec? */
@@ -59,7 +65,7 @@ rcs_number_compare(const struct rcs_number *a, const struct rcs_number *b)
 bool
 rcs_number_is_trunk(const struct rcs_number *number)
 {
-    return number->c == 2;
+	return number->c == 2;
 }
 
 /* get the next RCS number */

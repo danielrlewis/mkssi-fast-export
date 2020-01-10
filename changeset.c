@@ -1,4 +1,7 @@
 /*
+ * Copyright (c) 2017, 2019-2020 Datalight, Inc.
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ *
  * Build a list of changes that occurred between two project revisions (that is,
  * between project checkpoints).  The list shows added files, updated files, and
  * deleted files.

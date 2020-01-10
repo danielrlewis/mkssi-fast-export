@@ -1,4 +1,9 @@
-/* Expand RCS keywords in text files */
+/*
+ * Copyright (c) 2017, 2019-2020 Datalight, Inc.
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ *
+ * Expand RCS keywords in text files.
+ */
 #include <stdlib.h>
 #include <errno.h>
 #include <string.h>

@@ -1,4 +1,9 @@
-/* Read revision data from binary MKSSI RCS files */
+/*
+ * Copyright (c) 2017, 2019-2020 Datalight, Inc.
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ *
+ * Read revision data from binary MKSSI RCS files.
+ */
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>

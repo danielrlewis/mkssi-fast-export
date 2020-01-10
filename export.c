@@ -1,4 +1,7 @@
 /*
+ * Copyright (c) 2017, 2019-2020 Datalight, Inc.
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ *
  * Export a stream of commands for git fast-import.
  *
  * Recommended reading: the git-fast-import(1) man page.

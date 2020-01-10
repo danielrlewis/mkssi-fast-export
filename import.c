@@ -1,3 +1,9 @@
+/*
+ * Copyright (c) 2017, 2019-2020 Datalight, Inc.
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ *
+ * Import RCS files into in-memory structures.
+ */
 #include <stdio.h>
 #include <string.h>
 #include <sys/types.h>

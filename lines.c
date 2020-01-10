@@ -1,4 +1,9 @@
-/* Utilities for working with numbered lines from an RCS file */
+/*
+ * Copyright (c) 2017, 2019 Datalight, Inc.
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ *
+ * Utilities for working with numbered lines from an RCS file.
+ */
 #include <stdlib.h>
 #include <string.h>
 #include "interfaces.h"

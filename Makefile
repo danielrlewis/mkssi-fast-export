@@ -1,4 +1,7 @@
-# Makefile for mkssi-fast-export
+# Copyright (c) 2019 Datalight, Inc.
+# SPDX-License-Identifier: GPL-2.0-or-later
+#
+# Makefile for mkssi-fast-export.
 CC=cc
 YACC=bison
 LEX=flex
