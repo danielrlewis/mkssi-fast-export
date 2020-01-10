@@ -290,7 +290,7 @@ main(int argc, char *argv[])
 		default: /* error message already emitted */
 			fprintf(stderr, "try `%s --help' for more "
 				"information.\n", argv[0]);
-            		exit(1);
+			exit(1);
 		}
 	}
 

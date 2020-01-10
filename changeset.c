@@ -184,15 +184,15 @@ find_implicit_dir_renames(const struct rcs_file_revision *old,
 			if (od->len == nd->len && !strncasecmp(od->path,
 			 nd->path, nd->len) && strncmp(od->path, nd->path,
 			 nd->len)) {
-			 	/*
-			 	 * If the difference does not occur in the final
-			 	 * directory, ignore it, it will be handled by a
-			 	 * different iteration through the loop.
-			 	 *
-			 	 * The paths include a trailing path separator,
-			 	 * so the -2 on the next line gets us a pointer
-			 	 * to the last name character for the directory.
-			 	 */
+				/*
+				 * If the difference does not occur in the final
+				 * directory, ignore it, it will be handled by a
+				 * different iteration through the loop.
+				 *
+				 * The paths include a trailing path separator,
+				 * so the -2 on the next line gets us a pointer
+				 * to the last name character for the directory.
+				 */
 				oname = od->path + od->len - 2;
 				while (oname > od->path && *oname != '/')
 					--oname;

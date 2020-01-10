@@ -416,7 +416,7 @@ project_revision_read_files(const char *pjdata)
 			 * RCS keyword expansion.  This seems strange so perhaps
 			 * there is actually another rule at play.
 			 */
-			 revnum.c = 0; /* Will grab correct revision below */
+			revnum.c = 0; /* Will grab correct revision below */
 		else if (!strncmp(lp, " i", 2) || !strncmp(lp, " s", 2)) {
 			/*
 			 * According to the manual, "i" means included sub-

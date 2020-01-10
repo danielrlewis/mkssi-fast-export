@@ -206,10 +206,10 @@ add_author_mapping(struct author_map *am, unsigned int lineno)
 		if (strcasecmp(old->rcs_author, am->rcs_author))
 			continue;
 
-	 	/*
-	 	 * Ignore a duplicate entry if the name and email are
-	 	 * _exactly_ the same in both.
-	 	 */
+		/*
+		 * Ignore a duplicate entry if the name and email are
+		 * _exactly_ the same in both.
+		 */
 		if (!strcmp(old->git_author.name, am->git_author.name)
 		 && !strcmp(old->git_author.email, am->git_author.email)) {
 			free(am);
