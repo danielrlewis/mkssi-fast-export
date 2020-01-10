@@ -212,22 +212,46 @@ rcs_file_dummy_find_or_add(const char *name)
 }
 
 /* fix inconsistent directory name capitalization */
-static void
-fix_directory_capitalization(const struct rcs_file_revision *frevs)
+static struct rcs_file_revision *
+fix_directory_capitalization(struct rcs_file_revision *frevs)
 {
-	const struct rcs_file_revision *f, *ff;
+	struct rcs_file_revision *head, **prev_next, *f, *ff;
 	struct dir_path *adjusted_dirs, *dirs, *d;
+
+	/*
+	 * The canonical capitalization of a directory name seems to be based on
+	 * its first appearance in a _sorted_ list, rather than its first
+	 * appearance in the raw list.
+	 *
+	 * So, sort the list -- pop each frev off the front of the list and
+	 * insertion sort it into the new list.
+	 */
+	head = NULL;
+	for (f = frevs; f; f = frevs) {
+		frevs = f->next;
+		prev_next = &head;
+		for (ff = head; ff; ff = ff->next) {
+			if (strcasecmp(f->canonical_name,
+			 ff->canonical_name) < 0)
+				break;
+			prev_next = &ff->next;
+		}
+		f->next = ff;
+		*prev_next = f;
+	}
+	frevs = head;
 
 	adjusted_dirs = NULL;
 
 	/*
 	 * Current assumption is that the canonical capitalization of a
 	 * directory is the capitalization used in its first appearance in the
-	 * list.  Most likely, MKSSI creates the files and directories in-order,
-	 * using the capitalization that it encounters first, and if subsequent
-	 * entries in that directory are listed with a different directory name
-	 * capitalization, it has no effect since Windows file systems are case
-	 * insensitive.
+	 * list, *after* it has been sorted by name (which we did above).  Most
+	 * likely, MKSSI sorts the list and then creates the files and
+	 * directories in-order, using the capitalization that it encounters
+	 * first, and if subsequent entries in that directory are listed with a
+	 * different directory name capitalization, it has no effect since
+	 * Windows file systems are case insensitive.
 	 */
 	for (f = frevs; f; f = f->next) {
 		dirs = dir_list_from_path(f->canonical_name);
@@ -244,6 +268,8 @@ fix_directory_capitalization(const struct rcs_file_revision *frevs)
 	}
 
 	dir_list_free(adjusted_dirs);
+
+	return frevs;
 }
 
 /* load file revision list from a revision of project.pj */
@@ -457,7 +483,7 @@ project_revision_read_files(const char *pjdata)
 	}
 	*prev = NULL;
 
-	fix_directory_capitalization(head);
+	head = fix_directory_capitalization(head);
 
 	return head;
 }
