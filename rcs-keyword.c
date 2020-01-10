@@ -208,6 +208,9 @@ expanded_projectrevision_str(const struct rcs_file *file,
 	 * generate commits that update $ProjectRevision$ when the project
 	 * revision number is incremented.
 	 */
+	fprintf(stderr, "warning: $ProjectRevision$ (in %s rev. %s) is not "
+		"fully supported, possibly expanded incorrectly\n",
+		file->name, rcs_number_string_sb(&ver->number));
 	return sprintf_alloc("$ProjectRevision: %s $",
 		rcs_number_string_sb(&project->head));
 }
