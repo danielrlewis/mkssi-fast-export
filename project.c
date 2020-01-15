@@ -496,7 +496,10 @@ project_revision_read_files(const char *pjdata)
 		}
 
 		frev->file = file;
-		frev->ver = rcs_file_find_version(file, &frev->rev, false);
+
+		if (!file->dummy)
+			frev->ver = rcs_file_find_version(file, &frev->rev,
+				false);
 
 		*prev = frev;
 		prev = &frev->next;
