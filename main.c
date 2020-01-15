@@ -250,7 +250,7 @@ main(int argc, char *argv[])
 	 * Create the trunk (a.k.a. "master") branch.  Arguably, the MKSSI trunk
 	 * isn't really a branch, but it simplifies things to treat it as such.
 	 */
-	master_branch = xcalloc(1, sizeof *project_branches, __func__);
+	master_branch = xcalloc(1, sizeof *master_branch, __func__);
 	master_branch->branch_name = xstrdup("master", __func__);
 	master_branch->created = true;
 	project_branches = master_branch;
@@ -282,7 +282,7 @@ main(int argc, char *argv[])
 				fatal_error("invalid revision number: %s\n",
 					optarg);
 
-			project_branches->number = trunk_branch;
+			master_branch->number = trunk_branch;
 			break;
 		case 'A':
 			author_map = optarg;

@@ -352,12 +352,12 @@ import(void)
 	 * branch.  If the master branch wasn't explicitly assigned a revision
 	 * number via --trunk-branch, ...
 	 */
-	if (!project_branches->number.c)
+	if (!master_branch->number.c)
 		/*
 		 * ... then save the project.pj head revision as the master
 		 * branch revision number.
 		 */
-		project_branches->number = project->head;
+		master_branch->number = project->head;
 
 	/* Import the rest of the RCS master files. */
 	import_rcs_files_in_dir("");
