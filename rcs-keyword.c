@@ -84,29 +84,59 @@ lock_find(const struct rcs_file *file, const struct rcs_version *ver)
 	return NULL;
 }
 
+/* mark version as having an RCS keyword that expands to a file name */
+static void
+name_keyword(const struct rcs_file *file, struct rcs_version *ver)
+{
+	ver->kw_name = true;
+
+	/*
+	 * If the canonical capitalization of the file name changes over time,
+	 * then this file revision will need to be exported just-in-time, in the
+	 * context of the project revision, in order for the keyword to expand
+	 * to the canonical capitalization which is correct for that project
+	 * revision.
+	 */
+	if (file->name_changes > 1)
+		ver->jit = true;
+}
+
+/* mark version as having an RCS keyword that expands to a file path */
+static void
+path_keyword(const struct rcs_file *file, struct rcs_version *ver)
+{
+	ver->kw_path = true;
+
+	/* See comment in name_keyword(): the same applies for the path. */
+	if (file->path_changes > 1)
+		ver->jit = true;
+}
+
 /* signature for a keyword expander function */
 typedef char *(keyword_expander_t)(const struct rcs_file *file,
-	const struct rcs_version *ver);
+	struct rcs_version *ver);
 
 /* generate an expanded $Author$ keyword string */
 static char *
-expanded_author_str(const struct rcs_file *file, const struct rcs_version *ver)
+expanded_author_str(const struct rcs_file *file, struct rcs_version *ver)
 {
 	return sprintf_alloc("$Author: %s $", ver->author);
 }
 
 /* generate an expanded $Date$ keyword string */
 static char *
-expanded_date_str(const struct rcs_file *file, const struct rcs_version *ver)
+expanded_date_str(const struct rcs_file *file, struct rcs_version *ver)
 {
 	return sprintf_alloc("$Date: %s $", ver->date.string);
 }
 
 /* generate an expanded $Header$ keyword string */
 static char *
-expanded_header_str(const struct rcs_file *file, const struct rcs_version *ver)
+expanded_header_str(const struct rcs_file *file, struct rcs_version *ver)
 {
 	const char *path;
+
+	path_keyword(file, ver);
 
 	/* See comment about the source dirpath in expanded_source_str(). */
 	if (source_dir_path)
@@ -126,9 +156,11 @@ expanded_header_str(const struct rcs_file *file, const struct rcs_version *ver)
 
 /* generate an expanded $Id$ keyword string */
 static char *
-expanded_id_str(const struct rcs_file *file, const struct rcs_version *ver)
+expanded_id_str(const struct rcs_file *file, struct rcs_version *ver)
 {
 	const struct rcs_lock *lock;
+
+	name_keyword(file, ver);
 
 	/* If the file is locked, $Id$ includes the locker username. */
 	lock = lock_find(file, ver);
@@ -142,7 +174,7 @@ expanded_id_str(const struct rcs_file *file, const struct rcs_version *ver)
 
 /* generate an expanded $Locker$ keyword string */
 static char *
-expanded_locker_str(const struct rcs_file *file, const struct rcs_version *ver)
+expanded_locker_str(const struct rcs_file *file, struct rcs_version *ver)
 {
 	const struct rcs_lock *lock;
 
@@ -155,8 +187,7 @@ expanded_locker_str(const struct rcs_file *file, const struct rcs_version *ver)
 
 /* generate an expanded $ProjectName$ keyword string */
 static char *
-expanded_projectname_str(const struct rcs_file *file,
-	const struct rcs_version *ver)
+expanded_projectname_str(const struct rcs_file *file, struct rcs_version *ver)
 {
 	const char *path, *name;
 
@@ -196,48 +227,62 @@ expanded_projectname_str(const struct rcs_file *file,
 /* generate an expanded $ProjectRevision$ keyword string */
 static char *
 expanded_projectrevision_str(const struct rcs_file *file,
-	const struct rcs_version *ver)
+	struct rcs_version *ver)
 {
+	const struct rcs_number *revnum;
+
 	/*
-	 * TODO: This isn't correct.  In MKSSI, $ProjectRevision$ seems to
-	 * expand to the project.pj revision of the checkpoint or branch which
-	 * is being checked-out.  Below, it is hard-coded to expand to the head
-	 * revision.  This isn't likely to get fixed, since $ProjectRevision$ is
-	 * rarely used and fixing it would be extremely difficult.  We generally
-	 * assume that a file revision will have the same contents regardless of
-	 * which branch or checkpoint references that file revision; thus, we
-	 * can export a blob for that revision and reuse it.  That isn't true if
-	 * the file revision includes this keyword.  The only way to implement
-	 * this keyword would be to export separate blobs for each project.pj
-	 * revision which references the file revision, and use those to
-	 * generate commits that update $ProjectRevision$ when the project
-	 * revision number is incremented.
+	 * $ProjectRevision$ is an unfortunate keyword.  It expands to the
+	 * project.pj file revision which is being used to check-out the file.
+	 * Thus, if a given file revision is referenced from multiple branches
+	 * or checkpoints, and if that file revision has a $ProjectRevision$
+	 * keyword, the contents of the file revision will be different for the
+	 * various branches and checkpoints that reference it, depending on the
+	 * respective project.pj revision.  This means that we cannot export a
+	 * single blob for the file revision and reuse it everywhere.
 	 */
-	fprintf(stderr, "warning: $ProjectRevision$ (in %s rev. %s) is not "
-		"fully supported, possibly expanded incorrectly\n",
-		file->name, rcs_number_string_sb(&ver->number));
+
+	ver->kw_projrev = true; /* Version has $ProjectRevision$ */
+	ver->jit = true; /* Version will need to be just-in-time exported */
+
+	/*
+	 * pj_revnum_cur is the project.pj revision number that is currently
+	 * being exported.  It is the correct number to use for this keyword.
+	 *
+	 * If we aren't yet exporting project revision, pj_revnum_cur will be
+	 * unpopulated.  The revision number in that case is unimportant, since
+	 * the blob we are exporting will never be used.
+	 */
+	if (pj_revnum_cur.c)
+		revnum = &pj_revnum_cur;
+	else
+		revnum = &project->head;
+
 	return sprintf_alloc("$ProjectRevision: %s $",
-		rcs_number_string_sb(&project->head));
+		rcs_number_string_sb(revnum));
 }
 
 /* generate an expanded $RCSfile$ keyword string */
 static char *
-expanded_rcsfile_str(const struct rcs_file *file, const struct rcs_version *ver)
+expanded_rcsfile_str(const struct rcs_file *file, struct rcs_version *ver)
 {
+	name_keyword(file, ver);
+
 	return sprintf_alloc("$RCSfile: %s $", path_to_name(file->name));
 }
 
 /* generate an expanded $Log$ keyword string */
 static char *
-expanded_log_str(const struct rcs_file *file, const struct rcs_version *ver)
+expanded_log_str(const struct rcs_file *file, struct rcs_version *ver)
 {
+	name_keyword(file, ver);
+
 	return sprintf_alloc("$Log: %s $", path_to_name(file->name));
 }
 
 /* generate an expanded $Revision$ keyword string */
 static char *
-expanded_revision_str(const struct rcs_file *file,
-	const struct rcs_version *ver)
+expanded_revision_str(const struct rcs_file *file, struct rcs_version *ver)
 {
 	return sprintf_alloc("$Revision: %s $",
 		rcs_number_string_sb(&ver->number));
@@ -245,9 +290,11 @@ expanded_revision_str(const struct rcs_file *file,
 
 /* generate an expanded $Source$ keyword string */
 static char *
-expanded_source_str(const struct rcs_file *file, const struct rcs_version *ver)
+expanded_source_str(const struct rcs_file *file, struct rcs_version *ver)
 {
 	const char *path;
+
+	path_keyword(file, ver);
 
 	/*
 	 * The correct expansion of the $Source$ (and $Header$) keyword will use
@@ -270,7 +317,7 @@ expanded_source_str(const struct rcs_file *file, const struct rcs_version *ver)
 
 /* generate an expanded $State$ keyword string */
 static char *
-expanded_state_str(const struct rcs_file *file, const struct rcs_version *ver)
+expanded_state_str(const struct rcs_file *file, struct rcs_version *ver)
 {
 	return sprintf_alloc("$State: %s $", ver->state);
 }
@@ -301,7 +348,7 @@ expand_keyword(struct rcs_line *line, size_t kw_start, size_t kw_end,
 /* expand a generic RCS keyword */
 static void
 rcs_data_expand_generic_keyword(const struct rcs_file *file,
-	const struct rcs_version *ver, struct rcs_line *dlines,
+	struct rcs_version *ver, struct rcs_line *dlines,
 	const char *keyword, keyword_expander_t expander)
 {
 	struct rcs_line *dl;
@@ -416,7 +463,7 @@ log_text_to_lines(char *log, const char *template_line, size_t prefix_len,
 /* expand "$Log$" keyword and insert revision history comment after it */
 static void
 rcs_data_expand_log_keyword(const struct rcs_file *file,
-	const struct rcs_version *ver, const struct rcs_patch *patch,
+	struct rcs_version *ver, const struct rcs_patch *patch,
 	struct rcs_line *dlines)
 {
 	struct rcs_line *dl, *loghdr, *loglines, *ll;
@@ -541,9 +588,8 @@ rcs_data_expand_log_keyword(const struct rcs_file *file,
 
 /* expand RCS escapes and keywords */
 void
-rcs_data_keyword_expansion(const struct rcs_file *file,
-	const struct rcs_version *ver, const struct rcs_patch *patch,
-	struct rcs_line *dlines)
+rcs_data_keyword_expansion(const struct rcs_file *file, struct rcs_version *ver,
+	const struct rcs_patch *patch, struct rcs_line *dlines)
 {
 	struct {
 		const char *keyword;

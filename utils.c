@@ -145,6 +145,16 @@ path_parent_dir(const char *path)
 	return dir_path;
 }
 
+/* is dirpath a parent directory of path? */
+bool
+is_parent_dir(const char *dirpath, const char *path)
+{
+	size_t dlen;
+
+	dlen = strlen(dirpath);
+	return !strncasecmp(path, dirpath, dlen) && path[dlen] == '/';
+}
+
 /* like malloc(), but abort on failure */
 void *
 xmalloc(size_t size, const char *legend)

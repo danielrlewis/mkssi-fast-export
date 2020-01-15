@@ -69,6 +69,55 @@ find_updates(const struct rcs_file_revision *old,
 				*prev_next = change;
 				prev_next = &change->next;
 			}
+
+	/*
+	 * The project revision for the tip of each branch is the same as the
+	 * project revision of the last checkpoint on that branch, so there is
+	 * no need to update $ProjectRevision$ when exporting tip revisions.
+	 */
+	if (exporting_tip)
+		goto out;
+
+	/*
+	 * If a file has the $ProjectRevision$ keyword, then each new project
+	 * revision will update the file.
+	 */
+	for (n = new; n; n = n->next)
+		if (n->ver && n->ver->kw_projrev) {
+			/*
+			 * Ignore files that weren't part of the prior project
+			 * revision -- i.e., files which are being added.  The
+			 * $ProjectRevision$ will be updated as part of the add,
+			 * so there is no need for a separate update.
+			 */
+			for (o = old; o; o = o->next)
+				if (o->file == n->file)
+					break;
+			if (!o)
+				continue;
+
+			/*
+			 * Ignore files that are already on the update list.
+			 * The $ProjectRevision$ will be updated implicitly; we
+			 * do not need a separate update for it.
+			 */
+			for (change = head; change; change = change->next)
+				if (change->file == n->file)
+					break;
+			if (change)
+				continue;
+
+			/* Create $ProjectRevision$ update */
+			change = xcalloc(1, sizeof *change, __func__);
+			change->file = n->file;
+			change->canonical_name = n->canonical_name;
+			change->projrev_update = true;
+			change->oldrev = change->newrev = n->rev;
+			*prev_next = change;
+			prev_next = &change->next;
+		}
+
+out:
 	return head;
 }
 
@@ -97,16 +146,6 @@ find_deletes(const struct rcs_file_revision *old,
 		}
 	}
 	return head;
-}
-
-/* is dirpath a parent directory of path? */
-static bool
-is_parent_dir(const char *dirpath, const char *path)
-{
-	size_t dlen;
-
-	dlen = strlen(dirpath);
-	return !strncasecmp(path, dirpath, dlen) && path[dlen] == '/';
 }
 
 /* update rename path to account for parent directory renames */
@@ -204,6 +243,14 @@ find_implicit_dir_renames(const struct rcs_file_revision *old,
 				rename = xcalloc(1, sizeof *rename, __func__);
 
 				/*
+				 * This rename might require file modifications
+				 * to update RCS keyword expansions.  This list
+				 * is used later to determine whether that is
+				 * necessary.
+				 */
+				rename->old_frevs = old;
+
+				/*
 				 * Note that rename->file is left as NULL.
 				 * Directories don't have RCS files, so there
 				 * would be nothing to point at.  Later on we
@@ -292,6 +339,14 @@ find_implicit_file_renames(const struct rcs_file_revision *old,
 			 */
 			if (!strcasecmp(opath, npath) && strcmp(oname, nname)) {
 				rename = xcalloc(1, sizeof *rename, __func__);
+
+				/*
+				 * This rename might require file modifications
+				 * to update RCS keyword expansions.  This list
+				 * is used later to determine whether that is
+				 * necessary.
+				 */
+				rename->old_frevs = old;
 
 				/*
 				 * Populate the file pointer.  While we don't
@@ -608,31 +663,47 @@ compare_by_name(const struct file_change *a, const struct file_change *b)
 	return strcmp(a->canonical_name, b->canonical_name);
 }
 
+/* get a timestamp for a file change */
+static time_t
+get_change_date(const struct file_change *c)
+{
+	struct rcs_version *ver;
+
+	/*
+	 * Updates for the $ProjectRevision$ have no file revision.  The correct
+	 * date to use is the date of the project revision itself, since that is
+	 * what caused the $ProjectRevision$ keyword to be updated.
+	 */
+	if (c->projrev_update) {
+		ver = rcs_file_find_version(project, &pj_revnum_cur, true);
+		return ver->date.value;
+	}
+
+	/*
+	 * Dummy files have no RCS metadata and thus no dates.  Return a large
+	 * value so that dummy files will sort after normal files.
+	 */
+	if (c->file->dummy)
+		return (time_t)~0;
+
+	/* The normal case: use the file revision date. */
+	ver = rcs_file_find_version(c->file, &c->newrev, true);
+	return ver->date.value;
+}
+
 /* compare two changes by date for sorting purposes */
 static int
 compare_by_date(const struct file_change *a, const struct file_change *b)
 {
-	struct rcs_version *aver, *bver;
+	time_t adate, bdate;
 
-	/*
-	 * Dummy files have no RCS metadata and thus no dates.  Sort dummy files
-	 * after normal files.
-	 */
-	if (!a->file->dummy && b->file->dummy)
+	adate = get_change_date(a);
+	bdate = get_change_date(b);
+	if (adate < bdate)
 		return -1;
-	if (a->file->dummy && !b->file->dummy)
-		return 1;
-	if (a->file->dummy && b->file->dummy)
-		goto name; /* Both dummy, sort by name. */
-
-	aver = rcs_file_find_version(a->file, &a->newrev, true);
-	bver = rcs_file_find_version(b->file, &b->newrev, true);
-	if (aver->date.value < bver->date.value)
-		return -1;
-	if (aver->date.value > bver->date.value)
+	if (adate > bdate)
 		return 1;
 
-name:
 	/* If the timestamp is the same for some reason, sort by name. */
 	return compare_by_name(a, b);
 }

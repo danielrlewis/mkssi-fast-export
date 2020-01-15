@@ -35,7 +35,7 @@ struct rcs_patch_buffer {
 	struct rcs_patch_buffer *branch_next;
 
 	/* RCS version and patch structures (for convenience) */
-	const struct rcs_version *ver;
+	struct rcs_version *ver;
 	const struct rcs_patch *patch;
 
 	/* Raw text of the patch.  The lines buffer points into this. */
@@ -258,7 +258,7 @@ free_patch_buffers(struct rcs_patch_buffer *patches)
 /* pass file revision data to the callback*/
 static void
 emit_revision_data(rcs_revision_data_handler_t *callback,
-	struct rcs_file *file, const struct rcs_version *ver,
+	struct rcs_file *file, struct rcs_version *ver,
 	const struct rcs_patch *patch, const struct rcs_line *data_lines,
 	bool has_member_type_other)
 {
@@ -304,7 +304,7 @@ emit_revision_data(rcs_revision_data_handler_t *callback,
 /* pass file revision data(s) to the callback */
 static void
 emit_revision(rcs_revision_data_handler_t *callback,
-	struct rcs_file *file, const struct rcs_version *ver,
+	struct rcs_file *file, struct rcs_version *ver,
 	const struct rcs_patch *patch, const struct rcs_line *data_lines)
 {
 	/*
@@ -415,4 +415,82 @@ rcs_file_read_all_revisions(struct rcs_file *file,
 
 	/* Free the patch buffers */
 	free_patch_buffers(patches);
+}
+
+/* read a given revision from an RCS file */
+char *
+rcs_file_read_revision(struct rcs_file *file, const struct rcs_number *revnum)
+{
+	struct rcs_line *data_lines, *patch_lines;
+	char *patch_text, *data_text;
+	const struct rcs_patch *patch;
+	struct rcs_version *ver;
+	const struct rcs_branch *b;
+	struct rcs_number getrev, brrev;
+	int cmp;
+
+	data_lines = NULL;
+	getrev = file->head;
+loop:
+	ver = rcs_file_find_version(file, &getrev, true);
+	patch = rcs_file_find_patch(file, &getrev, true);
+	if (patch->missing)
+		/*
+		 * Currently, this function shouldn't be called for file
+		 * revisions that depend upon missing patches.
+		 */
+		fatal_error("missing patch for file %s rev. %s\n",
+			file->name, rcs_number_string_sb(&getrev));
+
+	if (data_lines) {
+		patch_text = read_patch_text(file, patch);
+		patch_lines = string_to_lines(patch_text);
+		data_lines = apply_patch(file, &ver->number, data_lines,
+			patch_lines);
+		lines_free(patch_lines);
+		lines_reset(&data_lines);
+	} else {
+		patch_text = read_patch_text(file, patch);
+		data_lines = string_to_lines(patch_text);
+	}
+
+	if (rcs_number_equal(&getrev, revnum)) {
+		rcs_data_keyword_expansion(file, ver, patch, data_lines);
+		data_text = lines_to_string(data_lines);
+		lines_free(data_lines);
+		free(patch_text);
+		return data_text;
+	}
+
+	if (rcs_number_partial_match(revnum, &getrev)) {
+		for (b = ver->branches; b; b = b->next) {
+			/*
+			 * We want a branchier rev like 1.145.1.82.1.1 to match
+			 * a less branchy rev that leads to it like 1.145.1.1.
+			 */
+			brrev = *revnum;
+			while (brrev.c > b->number.c)
+				brrev.c -= 2;
+
+			if (rcs_number_same_branch(&brrev, &b->number)) {
+				getrev = b->number;
+				goto loop;
+			}
+		}
+	} else if (ver->parent.c) {
+		/*
+		 * Get the parent revision next as long as it brings us closer
+		 * to the request revision.  Remember that trunk revisions are
+		 * descending and branch revisions are ascending.
+		 */
+		cmp = rcs_number_compare(&ver->parent, &getrev);
+		if (rcs_number_is_trunk(&ver->parent) ? cmp <= 0 : cmp >= 0) {
+			getrev = ver->parent;
+			goto loop;
+		}
+	}
+
+	fatal_error("cannot find \"%s\" rev. %s", file->name,
+		rcs_number_string_sb(revnum));
+	return NULL; /* unreachable */
 }

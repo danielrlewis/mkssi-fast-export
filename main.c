@@ -31,6 +31,13 @@ struct mkssi_branch *project_branches;
 struct rcs_number trunk_branch; /* --trunk-branch */
 bool author_list; /* --authorlist */
 
+/*
+ * The project revision number currently being exported and whether it's the tip
+ * revision for its branch.  Used for RCS keyword expansion.
+ */
+struct rcs_number pj_revnum_cur;
+bool exporting_tip;
+
 /* print usage and exit */
 static void
 usage(const char *name, bool error)

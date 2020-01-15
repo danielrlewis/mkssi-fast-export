@@ -162,8 +162,20 @@ rcs_file_find(const char *name)
 			 * down if the file name capitalization changes over
 			 * time.
 			 */
-			if (strcmp(f->name, name))
+			if (strcmp(f->name, name)) {
+				/*
+				 * Keep track of how many times the path and
+				 * name is adjusted.  If it's adjusted more than
+				 * once, we may need special handling for RCS
+				 * keyword expansion.
+				 */
+				f->path_changes++;
+				if (strcmp(path_to_name(f->name),
+				 path_to_name(name)))
+					f->name_changes++;
+
 				strcpy(f->name, name);
+			}
 
 			return f;
 		}
@@ -482,7 +494,10 @@ project_revision_read_files(const char *pjdata)
 				frev->rev.c = 2;
 			}
 		}
+
 		frev->file = file;
+		frev->ver = rcs_file_find_version(file, &frev->rev, false);
+
 		*prev = frev;
 		prev = &frev->next;
 	}

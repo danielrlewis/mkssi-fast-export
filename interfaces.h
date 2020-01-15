@@ -77,7 +77,24 @@ struct rcs_version {
 	struct rcs_version *next;
 	bool checkpointed; /* revision listed in a project checkpoint */
 	bool executable; /* revision data looks like a Linux/Unix executable */
-	unsigned long blob_mark;
+	unsigned long blob_mark; /* mark # of data blob for this version */
+
+	/*
+	 * Keep track of whether this version has RCS keywords that potentially
+	 * require special handling.
+	 */
+	bool kw_name; /* Has keyword that expands to the file name */
+	bool kw_path; /* Has keyword that expands to the file path */
+	bool kw_projrev; /* Has $ProjectRevision$ keyword */
+
+	/*
+	 * Usually, a file revision has the same data regardless of which
+	 * project revision references it.  However, there are times when that
+	 * isn't true, due to RCS keyword expansion edge cases.  In those cases,
+	 * this file revision must be exported just-in-time for the project
+	 * revision.
+	 */
+	bool jit;
 
 	/* RCS metadata */
 	struct rcs_number number;
@@ -123,7 +140,26 @@ struct rcs_file {
 	struct rcs_file *hash_next; /* next in hash table bucket */
 	char *name; /* relative file path (without project directory) */
 	char *master_name; /* path to RCS master file */
-	bool binary, corrupt, dummy;
+
+	/*
+	 * Keep track of how many times the capitalization of the path, and the
+	 * file name portion of the path, are adjusted based on the project file
+	 * listing.  If these values are >1, then special handling will be
+	 * required if RCS keywords that expand to the name or path are present
+	 * in the file.
+	 */
+	unsigned long path_changes, name_changes;
+
+	/*
+	 * Indicates that this is a dummy instance for a file which doesn't
+	 * exist in the RCS directory.  Only used for "other" member types,
+	 * which can be exported from the project directory.  If set, the RCS
+	 * metadata is not populated.
+	 */
+	bool dummy;
+
+	bool corrupt; /* File has corrupt RCS metadata */
+	bool binary; /* File is binary (using the binary RCS format) */
 
 	/*
 	 * Files listed in the project with member type "other":
@@ -155,21 +191,39 @@ struct rcs_file {
 /* list of file revisions */
 struct rcs_file_revision {
 	struct rcs_file_revision *next;
-	const struct rcs_file *file;
-	struct rcs_number rev;
+	struct rcs_file *file;
+	struct rcs_number rev; /* revision number */
+	struct rcs_version *ver; /* associated file revision */
 	char *canonical_name; /* name with capitalization fixes */
-	bool member_type_other;
+	bool member_type_other; /* listed with "other" member type */
 };
 
 /* list of changes to files */
 struct file_change {
 	struct file_change *next;
-	const struct rcs_file *file;
+	struct rcs_file *file;
 	const char *canonical_name; /* name with capitalization fixes */
 	const char *old_canonical_name; /* used only for renames */
 	char *buf; /* sometimes allocated for canonical names */
+
+	/*
+	 * Revision numbers
+	 * oldrev: populated for updates and deletes.
+	 * newrev: populates for updates and adds.
+	 * Neither is populated for renames, which have no file revision
+	 */
 	struct rcs_number oldrev, newrev;
-	bool member_type_other;
+
+	bool member_type_other; /* add/update of "other" member type */
+	bool projrev_update; /* update for $ProjectRevision$ keyword */
+
+	/*
+	 * This is populated only for renames.  It is the full list of file
+	 * revisions for the prior project revision.  It is used to append file
+	 * modifications to the rename commit, if such is necessary to update
+	 * RCS keywords that expand to a name or path.
+	 */
+	const struct rcs_file_revision *old_frevs;
 };
 
 /* set of all changes between project revisions */
@@ -251,6 +305,8 @@ extern struct rcs_file *project; /* RCS-revisioned project.pj */
 extern struct mkssi_branch *project_branches;
 extern struct rcs_number trunk_branch;
 extern bool author_list;
+extern struct rcs_number pj_revnum_cur;
+extern bool exporting_tip;
 
 /* import.c */
 void import(void);
@@ -289,6 +345,8 @@ typedef void rcs_revision_data_handler_t(struct rcs_file *file,
 	bool member_type_other);
 void rcs_file_read_all_revisions(struct rcs_file *file,
 	rcs_revision_data_handler_t *callback);
+char *rcs_file_read_revision(struct rcs_file *file,
+	const struct rcs_number *revnum);
 
 /* rcs-binary.c */
 typedef void rcs_revision_binary_data_handler_t(struct rcs_file *file,
@@ -300,10 +358,12 @@ void rcs_binary_file_read_all_revisions(struct rcs_file *file,
 /* rcs-keyword.c */
 void rcs_data_unescape_ats(struct rcs_line *dlines);
 void rcs_data_keyword_expansion(const struct rcs_file *file,
-	const struct rcs_version *ver, const struct rcs_patch *patch,
+	struct rcs_version *ver, const struct rcs_patch *patch,
 	struct rcs_line *dlines);
 
 /* rcs-number.c */
+bool rcs_number_same_branch(const struct rcs_number *a,
+	const struct rcs_number *b);
 bool rcs_number_equal(const struct rcs_number *n1, const struct rcs_number *n2);
 bool rcs_number_partial_match(const struct rcs_number *num,
 	const struct rcs_number *spec);
@@ -344,6 +404,7 @@ uint32_t hash_string(const char *s);
 bool is_hex_digit(char c);
 const char *path_to_name(const char *path);
 char *path_parent_dir(const char *path);
+bool is_parent_dir(const char *dirpath, const char *path);
 void *xmalloc(size_t size, const char *legend);
 void *xcalloc(size_t nmemb, size_t size, const char *legend);
 void *xrealloc(void *ptr, size_t size, const char *legend);

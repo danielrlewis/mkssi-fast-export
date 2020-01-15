@@ -254,6 +254,127 @@ merge_renames_sub(const char *branch, struct file_change **renames,
 	return c;
 }
 
+/* create changes to update RCS keywords for a renamed directory */
+static void
+update_keywords_for_dir_rename(struct git_commit *rename)
+{
+	const struct rcs_file_revision *f;
+	struct file_change *r, *rr, **prev_next, *u;
+
+	if (!rename)
+		return;
+
+	/*
+	 * Loop through the renamed directories and check whether any of the
+	 * files in that directory have RCS keywords whose expanded values will
+	 * need to change due to the rename.
+	 */
+	prev_next = &rename->changes.updates;
+	for (r = rename->changes.renames; r; r = r->next) {
+		for (f = r->old_frevs; f; f = f->next)
+			/*
+			 * If this file resides in the renamed directory and it
+			 * has an RCS keyword which expands to a path...
+			 */
+			if (f->ver && f->ver->kw_path &&
+			 is_parent_dir(r->canonical_name, f->file->name)) {
+				/*
+				 * If the file has multiple parent directories
+				 * that are being renamed in the same commit,
+				 * ignore all but the longest parent directory.
+				 */
+				for (rr = r->next; rr; rr = rr->next)
+					if (is_parent_dir(rr->canonical_name,
+					 f->file->name) &&
+					 strlen(rr->canonical_name) >
+					 strlen(r->canonical_name))
+						break;
+				if (rr)
+					continue;
+
+				/*
+				 * We should have already detected this
+				 * condition when parsing the project revisions
+				 * and file revisions, and set the file revision
+				 * as requiring a just-in-time export.
+				 */
+				if (!f->ver || !f->ver->jit)
+					fatal_error("interal error: %s rev. %s "
+						"should be JIT for rename",
+						f->file->name,
+						rcs_number_string_sb(&f->rev));
+
+				/*
+				 * Add a file modification to the rename commit.
+				 */
+				u = xcalloc(1, sizeof *u, __func__);
+				u->file = f->file;
+				u->buf = xstrdup(f->file->name, __func__);
+				memcpy(u->buf, r->canonical_name,
+					strlen(r->canonical_name));
+				u->canonical_name = u->buf;
+				u->oldrev = u->newrev = f->rev;
+				*prev_next = u;
+				prev_next = &u->next;
+			}
+	}
+}
+
+/* create changes to update RCS keywords for a renamed file */
+static void
+update_keywords_for_file_rename(struct git_commit *rename)
+{
+	const struct rcs_file_revision *f;
+	struct file_change *r, **prev_next, *u;
+
+	if (!rename)
+		return;
+
+	/*
+	 * Loop through the renamed files and check whether any of them have RCS
+	 * keywords whose expanded values will need to change due to the rename.
+	 */
+	prev_next = &rename->changes.updates;
+	for (r = rename->changes.renames; r; r = r->next) {
+		/* Find the renamed file in the file revision list. */
+		for (f = r->old_frevs; f; f = f->next)
+			if (f->file == r->file)
+				break;
+		if (!f)
+			fatal_error("internal error: renaming non-existent "
+				"file %s\n", r->canonical_name);
+
+		/*
+		 * If the current file revision for the renamed file has an RCS
+		 * keyword that expands to a file name or path, then the file
+		 * needs to be modified to update the RCS keyword as part of the
+		 * rename.
+		 */
+		if (f->ver && (f->ver->kw_name || f->ver->kw_path)) {
+			/*
+			 * We should have already detected this condition when
+			 * parsing the project revisions and file revisions, and
+			 * set the file revision as requiring a just-in-time
+			 * export.
+			 */
+			if (!f->ver->jit)
+				fatal_error("interal error: %s rev. %s "
+					"should be JIT for rename",
+					f->file->name,
+					rcs_number_string_sb(&f->rev));
+
+			/* Add a file modification to the rename commit. */
+			u = xcalloc(1, sizeof *u, __func__);
+			u->file = f->file;
+			u->buf = xstrdup(r->canonical_name, __func__);
+			u->canonical_name = u->buf;
+			u->oldrev = u->newrev = f->rev;
+			*prev_next = u;
+			prev_next = &u->next;
+		}
+	}
+}
+
 /* merge renames into rename commits */
 static struct git_commit *
 merge_renames(const char *branch, struct file_change *renames, time_t cp_date)
@@ -287,7 +408,9 @@ explicitly rename the affected files.\n";
 	 */
 
 	cdir = merge_renames_sub(branch, &renames, cp_date, msg_dir, true);
+	update_keywords_for_dir_rename(cdir);
 	cfile = merge_renames_sub(branch, &renames, cp_date, msg_file, false);
+	update_keywords_for_file_rename(cfile);
 
 	/*
 	 * If there are both directory and file renames, the directory renames
@@ -418,6 +541,40 @@ skip_merge:
 	return head;
 }
 
+/* merge updates for the $ProjectRevision$ keyword */
+static void
+merge_projrev_updates(struct file_change *merge_head,
+	struct file_change **unmerged_head)
+{
+	struct file_change *unmerged, *unmerged_next;
+	struct file_change **unmerged_prev_next, **merged_prev_next;
+
+	/*
+	 * Updates for the $ProjectRevision$ keyword are all merged together.
+	 */
+	unmerged_prev_next = unmerged_head;
+	merged_prev_next = &merge_head->next;
+	for (unmerged = *unmerged_head; unmerged; unmerged = unmerged_next) {
+		unmerged_next = unmerged->next;
+
+		if (unmerged->projrev_update) {
+			/* Remove from the old list. */
+			*unmerged_prev_next = unmerged->next;
+
+			/* Append this update to the commit. */
+			*merged_prev_next = unmerged;
+			merged_prev_next = &unmerged->next;
+			unmerged->next = NULL;
+		} else
+			/*
+			 * Save the next pointer, so that if the next update has
+			 * is merged, it can be removed from the original list.
+			 */
+			unmerged_prev_next = &unmerged->next;
+	}
+
+}
+
 /* merge any un-merged updates which match the given update */
 static void
 merge_matching_updates(struct file_change *merge_head,
@@ -445,6 +602,10 @@ merge_matching_updates(struct file_change *merge_head,
 	merged_prev_next = &merge_head->next;
 	for (unmerged = *unmerged_head; unmerged; unmerged = unmerged_next) {
 		unmerged_next = unmerged->next;
+
+		/* $ProjectRevision$ updates are merged separately. */
+		if (unmerged->projrev_update)
+			goto not_match;
 
 		/*
 		 * Never update the same file more than once in any commit --
@@ -486,7 +647,7 @@ merge_matching_updates(struct file_change *merge_head,
 			/* Remove from the old list. */
 			*unmerged_prev_next = unmerged->next;
 
-			/* Append this add to the commit. */
+			/* Append this update to the commit. */
 			*merged_prev_next = unmerged;
 			merged_prev_next = &unmerged->next;
 			unmerged->next = NULL;
@@ -504,8 +665,18 @@ not_match:
 
 /* merge updates into commits */
 static struct git_commit *
-merge_updates(const char *branch, struct file_change *update_list)
+merge_updates(const char *branch, struct file_change *update_list,
+	time_t cp_date)
 {
+	static const char projrev_update_msg[] =
+"Update $ProjectRevision$ keyword\n\
+\n\
+$ProjectRevision$ is an RCS-style keyword supported by MKS Source Integrity.  It\n\
+expands to the project.pj file revision being used to check-out the file.  This\n\
+commit has been automatically generated to update this keyword, in all files\n\
+which have it, after a new project.pj revision.  The author and timestamp of\n\
+this commit are the author and timestamp of the project.pj revision.\n";
+
 	struct file_change *update;
 	const struct file_change *u;
 	const struct rcs_version *ver;
@@ -522,6 +693,25 @@ merge_updates(const char *branch, struct file_change *update_list)
 		c = xcalloc(1, sizeof *c, __func__);
 		c->branch = branch;
 		c->changes.updates = update;
+
+		/* Updates for $ProjectRevision$ are handled differently */
+		if (update->projrev_update) {
+			/*
+			 * Use the timestamp and author of the project revision
+			 * (the checkpoint) as the timestamp and author of the
+			 * $ProjectRevision$ update.
+			 */
+			ver = rcs_file_find_version(project, &pj_revnum_cur,
+				true);
+			c->date = cp_date;
+			c->committer = author_map(ver->author);
+
+			c->commit_msg = xstrdup(projrev_update_msg, __func__);
+
+			/* Merge with other $ProjectRevision$ updates */
+			merge_projrev_updates(update, &update_list);
+			goto next;
+		}
 
 		if (rcs_number_compare(&update->newrev, &update->oldrev) < 0) {
 			/*
@@ -564,6 +754,7 @@ merge_updates(const char *branch, struct file_change *update_list)
 
 		c->commit_msg = commit_msg_updates(c->changes.updates);
 
+next:
 		/* Append this commit to the list. */
 		*prev_next = c;
 		prev_next = &c->next;
@@ -620,7 +811,7 @@ merge_changeset_into_commits(const char *branch,
 	add_commits = merge_adds(branch, changes->adds, cp_date);
 	changes->adds = NULL;
 
-	update_commits = merge_updates(branch, changes->updates);
+	update_commits = merge_updates(branch, changes->updates, cp_date);
 	changes->updates = NULL;
 
 	delete_commit = merge_deletes(branch, changes->deletes, cp_date);

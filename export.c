@@ -365,6 +365,7 @@ export_filemodifies(const struct file_change *mods)
 	const struct file_change *m;
 	const struct rcs_version *ver;
 	unsigned long mark;
+	char *data;
 
 	for (m = mods; m; m = m->next) {
 		if (m->file->dummy) {
@@ -372,13 +373,66 @@ export_filemodifies(const struct file_change *mods)
 				fatal_error("internal error: modifying dummy "
 					"file for non-other member archive");
 
+			/* TODO: No reason this couldn't be an executable. */
 			perm = fperm;
+
+			/*
+			 * Dummy files have no revisions; they always use the
+			 * "other" blob marker.
+			 */
 			mark = m->file->other_blob_mark;
 		} else {
 			ver = rcs_file_find_version(m->file, &m->newrev, true);
 			perm = ver->executable ? xperm : fperm;
-			mark = m->member_type_other ? m->file->other_blob_mark :
-				ver->blob_mark;
+
+			/*
+			 * Certain RCS keyword edge cases require some file
+			 * revisions to be exported in the context of the
+			 * project revision.  In such cases, we cannot use the
+			 * blobs that were exported in advance.
+			 */
+			if (ver->jit) {
+				/*
+				 * Binary files don't have RCS keywords and thus
+				 * never have file revisions like this.
+				 */
+				if (m->file->binary)
+					fatal_error("internal error: binary "
+						"files cannot be JIT");
+
+				printf("M %o inline %s\n", perm,
+					m->canonical_name);
+
+				/*
+				 * Update the file name to its current canonical
+				 * capitalization, so that the RCS keywords will
+				 * be expanded correctly for this file revision.
+				 *
+				 * Note that both strings are the same length;
+				 * the only difference is capitalization.
+				 */
+				strcpy(m->file->name, m->canonical_name);
+
+				data = rcs_file_read_revision(m->file,
+					&ver->number);
+				printf("data %zu\n", strlen(data));
+				printf("%s\n", data);
+				free(data);
+
+				continue;
+			}
+
+			/*
+			 * Usually, we use ver->blob_mark, which is the marker
+			 * for the blob that was exported for the file revision.
+			 * However, for "other" member types, we need to use the
+			 * blob mark that was exported for the "other" version
+			 * of the file.
+			 */
+			if (m->member_type_other)
+				mark = m->file->other_blob_mark;
+			else
+				mark = ver->blob_mark;
 		}
 
 		printf("M %o :%lu %s\n", perm, mark, m->canonical_name);
@@ -554,6 +608,12 @@ export_project_revision_changes(struct mkssi_branch *branch,
 		cpname = NULL;
 	else
 		cpname = pjrev_find_checkpoint(pjrev_new);
+
+	/*
+	 * Set some global variables that are handy for RCS keyword expansion.
+	 */
+	exporting_tip = (pjrev_new == TIP_REVNUM);
+	pj_revnum_cur = exporting_tip ? project->head : *pjrev_new;
 
 	export_progress("exporting project rev. %s "
 		"(branch=%s checkpoint=%s)\n",
