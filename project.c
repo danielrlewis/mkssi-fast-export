@@ -120,15 +120,10 @@ project_data_extract_revnum(const char *pjdata, struct rcs_number *revnum)
 {
 	const char *pos;
 
-	/*
-	 * This function is called after validate_project_data(), so the fatal
-	 * error cases are unexpected (thus it's okay that the error messages
-	 * aren't very detailed).
-	 */
-
 	pos = strstr(pjdata, "\n$Revision");
 	if (!pos)
-		fatal_error("missing revision number");
+		fatal_error("project rev. %s is corrupt (missing revision "
+			"number)", rcs_number_string_sb(revnum));
 
 	pos += 10;
 	if (*pos == '$') {
@@ -140,7 +135,8 @@ project_data_extract_revnum(const char *pjdata, struct rcs_number *revnum)
 	}
 
 	if (*pos++ != ':' || *pos++ != ' ')
-		fatal_error("incorrectly formatted revision number");
+		fatal_error("project rev. %s has invalid revision number",
+			rcs_number_string_sb(revnum));
 
 	*revnum = lex_number(pos);
 }
@@ -793,6 +789,7 @@ project_branch_read_tip_revision(struct mkssi_branch *b)
 {
 	char *path, *pjdata;
 	bool is_master;
+	struct rcs_number revnum;
 
 	export_progress("reading tip revisions for branch %s", b->branch_name);
 
@@ -813,6 +810,32 @@ project_branch_read_tip_revision(struct mkssi_branch *b)
 
 	/* Get the entire project file as a NUL-terminated string. */
 	pjdata = file_as_string(path);
+
+	/*
+	 * --trunk-branch autodetection.  If the project.pj in the project
+	 * directory (which is used to check-out the trunk) has a branched
+	 * revision number, then trunk history continues on a branch.
+	 *
+	 * Note that this needs to happen before project_parse_revision() (see
+	 * below), since that calls validate_project_data(), which will fail if
+	 * master_branch->number has not been updated to the trunk branch.
+	 */
+	if (is_master && !trunk_branch.c) {
+		project_data_extract_revnum(pjdata, &revnum);
+
+		if (revnum.c > 2) {
+			/*
+			 * If the revision is something like 1.886.1.1974, then
+			 * trunk_branch needs to be 1.886.  What this means is
+			 * that project revisions 1.1 through 1.886 are trunk
+			 * history, but after that point, the 1.886.1.x
+			 * revisions are trunk history.
+			 */
+			trunk_branch = revnum;
+			trunk_branch.c -= 2;
+			b->number = trunk_branch;
+		}
+	}
 
 	/*
 	 * Get the list of file revisions.  If this is the master, also save the
