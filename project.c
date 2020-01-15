@@ -796,7 +796,7 @@ project_branch_read_tip_revision(struct mkssi_branch *b)
 
 	export_progress("reading tip revisions for branch %s", b->branch_name);
 
-	is_master = !strcmp(b->branch_name, "master");
+	is_master = (b == master_branch);
 
 	/*
 	 * The trunk (a.k.a. master) has its tip revisions in project.pj; the
@@ -850,19 +850,11 @@ project_read_tip_revisions(void)
 	export_progress("reading tip project revisions");
 
 	/*
-	 * At this point, the master branch should be the first and only branch
-	 * on the project_branches list.
-	 */
-	if (!project_branches || project_branches->next
-	 || strcmp(project_branches->branch_name, "master"))
-		fatal_error("internal error: unexpected branch list");
-
-	/*
 	 * Read the tip revision of the master branch first, so that the
 	 * project_branches list will be fully populated before we try to loop
 	 * through it.
 	 */
-	project_branch_read_tip_revision(project_branches);
+	project_branch_read_tip_revision(master_branch);
 
 	/*
 	 * If the project.vpj directory doesn't exist in the project directory,
@@ -883,14 +875,8 @@ project_read_tip_revisions(void)
 		return;
 	}
 
-	/*
-	 * Read the tip revision of every branch.
-	 *
-	 * Note that project_branches might have been updated: it might no
-	 * longer be the master branch.  Thus, loop from the beginning and skip
-	 * the master branch, which we already read.
-	 */
+	/* Read the tip revision of every branch. */
 	for (b = project_branches; b; b = b->next)
-		if (strcmp(b->branch_name, "master"))
+		if (b != master_branch)
 			project_branch_read_tip_revision(b);
 }

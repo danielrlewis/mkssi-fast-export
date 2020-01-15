@@ -32,31 +32,6 @@ pjrev_find_checkpoint(const struct rcs_number *pjrev)
 	return NULL;
 }
 
-/* find a branch by name */
-static struct mkssi_branch *
-pjrev_find_branch_by_name(const char *name)
-{
-	struct mkssi_branch *b;
-
-	for (b = project_branches; b; b = b->next)
-		if (!strcmp(b->branch_name, name))
-			break;
-	return b;
-}
-
-/* find the master branch (a.k.a. the trunk) */
-static struct mkssi_branch *
-pjrev_find_master_branch(void)
-{
-	struct mkssi_branch *master;
-
-	master = pjrev_find_branch_by_name("master");
-	if (!master)
-		fatal_error("internal error: master branch is missing");
-
-	return master;
-}
-
 /* find a branch (optionally after another branch) by project revision number */
 static struct mkssi_branch *
 pjrev_find_branch_after(const struct rcs_number *pjrev,
@@ -84,8 +59,8 @@ pjrev_find_branch_after(const struct rcs_number *pjrev,
 		if (prev_branch)
 			return NULL;
 
-		/* Find and return the trunk branch. */
-		return pjrev_find_master_branch();
+		/* Return the trunk branch. */
+		return master_branch;
 	}
 
 	/* pjrev with the last component stripped off */
@@ -641,7 +616,7 @@ export_project_revision_changes(struct mkssi_branch *branch,
 	 */
 	for (b = project_branches; b; b = b->next)
 		if (rcs_number_equal(&b->number, pjrev_new)
-		 && strcmp(b->branch_name, "master"))
+		 && b != master_branch)
 			b->parent = branch;
 
 	/* Create a tag to represent a named checkpoint */
@@ -726,7 +701,7 @@ export_project_branch_changes(const struct rcs_number *pjrev_start,
 		 * though, otherwise we might re-export the tip revisions for
 		 * the trunk.
 		 */
-		if (!strcmp(mb->branch_name, "master"))
+		if (mb == master_branch)
 			continue;
 
 		/* Does this MKSSI branch start from this project revision? */
@@ -761,10 +736,7 @@ export_project_changes(void)
 {
 	struct rcs_number pjrev_old, pjrev_new;
 	const struct rcs_version *ver;
-	struct mkssi_branch *master;
 	bool first;
-
-	master = pjrev_find_master_branch();
 
 	/*
 	 * Initialize to 1.0.  This is incremented to 1.1 at the start of the
@@ -806,7 +778,7 @@ export_project_changes(void)
 			break;
 
 		/* Export changes from these trunk revisions */
-		export_project_revision_changes(master,
+		export_project_revision_changes(master_branch,
 			first ? NULL : &pjrev_old, &pjrev_new);
 
 		/* Export changes for any branch that starts here */
@@ -819,7 +791,8 @@ export_project_changes(void)
 	 * If we have a trunk branch, skip this, since it was already done.
 	 */
 	if (!first && mkssi_proj_dir_path && !trunk_branch.c)
-		export_project_revision_changes(master, &pjrev_old, TIP_REVNUM);
+		export_project_revision_changes(master_branch, &pjrev_old,
+			TIP_REVNUM);
 }
 
 /* tag each branch to demarcate MKSSI history from subsequent Git history */
@@ -835,8 +808,7 @@ export_demarcating_tags(void)
 		 * Skip MKSSI branches which don't have Git branches.  Note that
 		 * the master branch always has a Git branch.
 		 */
-		if (!pjrev_find_branch(&b->number)
-		 && strcmp(b->branch_name, "master"))
+		if (!pjrev_find_branch(&b->number) && b != master_branch)
 			continue;
 
 		/*

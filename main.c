@@ -28,6 +28,7 @@ struct rcs_file *corrupt_files;
 struct rcs_file *dummy_files; /* "Other" files with no RCS masters */
 struct rcs_file *project; /* RCS project.pj */
 struct mkssi_branch *project_branches;
+struct mkssi_branch *master_branch;
 struct rcs_number trunk_branch; /* --trunk-branch */
 bool author_list; /* --authorlist */
 
@@ -248,13 +249,11 @@ main(int argc, char *argv[])
 	/*
 	 * Create the trunk (a.k.a. "master") branch.  Arguably, the MKSSI trunk
 	 * isn't really a branch, but it simplifies things to treat it as such.
-	 *
-	 * Note that the revision number for the trunk branch isn't initialized;
-	 * it isn't important unless the --trunk-branch parameter is specified.
 	 */
-	project_branches = xcalloc(1, sizeof *project_branches, __func__);
-	project_branches->branch_name = xstrdup("master", __func__);
-	project_branches->created = true;
+	master_branch = xcalloc(1, sizeof *project_branches, __func__);
+	master_branch->branch_name = xstrdup("master", __func__);
+	master_branch->created = true;
+	project_branches = master_branch;
 
 	/* Parse options */
 	author_map = NULL;

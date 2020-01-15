@@ -303,6 +303,7 @@ extern struct rcs_file *corrupt_files;
 extern struct rcs_file *dummy_files;
 extern struct rcs_file *project; /* RCS-revisioned project.pj */
 extern struct mkssi_branch *project_branches;
+extern struct mkssi_branch *master_branch;
 extern struct rcs_number trunk_branch;
 extern bool author_list;
 extern struct rcs_number pj_revnum_cur;
