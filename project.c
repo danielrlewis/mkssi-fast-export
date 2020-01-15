@@ -445,19 +445,32 @@ project_revision_read_files(const char *pjdata)
 				fprintf(stderr, "warning: ignoring file "
 					"without RCS master file:\n");
 				fprintf(stderr, "\t%s\n", errline);
-				free(frev);
-				continue;
+				goto ignore;
 			}
 
 			/*
-			 * Files with member type "other" can be exported even
-			 * when the RCS file is missing.  We use a dummy file
-			 * structure to make that work with the rest of this
-			 * program.
+			 * Files with member type "other" can be exported from
+			 * the project directory even when the RCS file is
+			 * missing, assuming that the file does indeed exist in
+			 * the project directory.
+			 */
+			if (!path_is_file(file_path)) {
+				fprintf(stderr, "warning: ignoring \"other\" "
+					"member which does not point at a "
+					"regular file:\n");
+				fprintf(stderr, "\t%s\n", errline);
+				goto ignore;
+			}
+
+			/*
+			 * Even though there is no RCS file, we use a dummy
+			 * instance of struct rcs_file to make this work with
+			 * the rest of the code.
 			 */
 			file = rcs_file_dummy_find_or_add(file_path);
 		}
 		if (file->corrupt) {
+ignore:
 			free(frev);
 			continue;
 		}

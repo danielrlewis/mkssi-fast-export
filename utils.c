@@ -204,6 +204,15 @@ xstrdup(const char *s, const char *legend)
 	return ret;
 }
 
+/* does a path point at a regular file? */
+bool
+path_is_file(const char *path)
+{
+	struct stat s;
+
+	return !stat(path, &s) && S_ISREG(s.st_mode);
+}
+
 /* buffer a file */
 unsigned char *
 file_buffer(const char *path, size_t *size)

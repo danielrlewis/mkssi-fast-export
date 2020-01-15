@@ -411,6 +411,7 @@ void *xcalloc(size_t nmemb, size_t size, const char *legend);
 void *xrealloc(void *ptr, size_t size, const char *legend);
 char *xstrdup(const char *s, const char *legend);
 unsigned char *file_buffer(const char *path, size_t *size);
+bool path_is_file(const char *path);
 char *file_as_string(const char *path);
 time_t file_mtime(const char *path);
 size_t parse_mkssi_branch_char(const char *s, int *cp);
