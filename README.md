@@ -149,15 +149,20 @@ MKSSI has characteristics which lower the quality of the history that can be
 exported from its projects.
 
 MKSSI, like CVS, tracks history on a per-file basis.  The per-file revision
-history should be merged into multi-file commits when appropriate.
-`cvs-fast-import` uses the revision history timestamps to help merge the
-per-file revisions into commits.  That approach doesn't work with MKSSI, because
-MKSSI uses the last modification time (mtime) of a file as the revision
-timestamp.  This is unfortunate, because the mtime can be much older (hours,
-days, months, even years older) than the actual time of check-in.  Thus, the
-timestamps are not a reliable indicator of when, or in what order, file
-revisions were checked-in to the project.  This has far-reaching consequences
-for merging changes, discussed later.
+history should be merged into multi-file commits when appropriate.  Unlike
+modern versions of CVS, MKSSI does _not_ have commitids that can be used to
+group per-file changes.  With `cvs-fast-import`, for projects without commitids,
+the file revision timestamps are used to help merge the per-file revisions into
+commits.  That approach doesn't work with MKSSI, because MKSSI uses the last
+modification time (mtime) of a file as the revision timestamp.  This is
+unfortunate, because the mtime can be much older (hours, days, months, even
+years older) than the actual time of check-in.  Thus, the timestamps are not a
+reliable indicator of when, or in what order, file revisions were checked-in to
+the project.  This has far-reaching consequences.  Without commitids or accurate
+timestamps, there are limited options for accurately merging file changes into
+commits.  And without accurate timestamps, the true ordering of changes is
+partially unknown, which may lead to out-of-order commits in the exported
+history.
 
 MKSSI does not store any metadata for deleted files.  There is no author,
 timestamp, or revision history comment.  Likewise for files that are reverted to
@@ -170,10 +175,12 @@ MKSSI does not permit the user to supply a revision history comment when a file
 is added to the project.  In the RCS file, the `log` field for the initial
 revision is always populated with "Initial revision".
 
-MKSSI is case insensitive.  The capitalization of directory names in the project
-file listing can be inconsistent; whichever capitalization variant is used first
-becomes the canonical capitalization on the case-insensitive Windows file
-system.  Furthermore, the revisioned file listings used for branches and
+MKSSI (at least the Windows and DOS versions) is case insensitive.  Projects
+contain file listings which do not always use the same capitalization as the
+on-disk file and directory names.  The capitalization of directory names in the
+project file listing can be inconsistent; whichever capitalization variant is
+used first becomes the canonical capitalization on the case-insensitive Windows
+file system.  Furthermore, the revisioned file listings used for branches and
 checkpoints will often list the same paths with different capitalization
 variants.  In effect, the capitalization can change over time, and MKSSI does
 not consider this to be a change to the project: "foo.c" and "FOO.C" are
@@ -183,15 +190,20 @@ considered to be the same file.
 
 ### Ordering Events
 
-Since MKSSI timestamps cannot be relied upon for ordering, `mkssi-fast-export`
-relies heavily on checkpoints for this purpose.  Changes referenced by earlier
-checkpoints must be older than changes referenced by newer checkpoints.
-However, in-between checkpoints, it's anyone's guess as to which changes came
-first; MKSSI simply does not store the right metadata to make this
-determination.  Since change ordering in-between checkpoints cannot be made
-accurate, `mkssi-fast-export` will order things in a way that ensures
-consistency: first commits which add files, then commits which update files, and
-finally commits which delete files.
+Since MKSSI timestamps are file mtimes that cannot be relied upon for ordering,
+`mkssi-fast-export` leans heavily on checkpoints for this purpose.  Changes
+referenced by earlier checkpoints must be older than changes referenced by newer
+checkpoints.  For files that were updated multiple times in the course of a
+single checkpoint, we also know that earlier revisions are older than later
+revisions.  However, across files and in-between checkpoints, it's anyone's
+guess as to which changes came first; MKSSI simply does not store the right
+metadata to determine that.  Since change ordering in-between checkpoints cannot
+be made accurate, `mkssi-fast-export` will order things in a way that is
+convenient for per-file consistency: first commits which add files, then commits
+which update files, and finally commits which delete files.  Within the set of
+adds and updates, the timestamps are used for ordering; except that, for
+updates, the file revision trumps the timestamp, so earlier revisions always
+precede later revisions, even if the earlier revision has an newer timestamp.
 
 This works okay for projects which have been checkpointed regularly (e.g., by a
 nightly build process), but less so otherwise.  However, even in the best case,
@@ -203,15 +215,16 @@ essentially impossible to do better with the available metadata.
 
 ### Timestamps
 
-For lack of a better alternative, MKSSI timestamps are used for commits which
-add or update files.  Since these timestamps are the file modification times,
-rather than the time of check-in, the commit history may have timestamps which
-are non-sequential: a child commit may have an older timestamp than a parent
-commit.
+For lack of a better alternative, MKSSI file revision timestamps are used as
+commit timestamps for commits which add or update files.  Since these timestamps
+are the file modification times, rather than the time of check-in, the commit
+history may have timestamps which are non-sequential: a child commit may have an
+older timestamp than a parent commit.
 
 MKSSI does not have timestamps for file deletions.  `mkssi-fast-export` uses the
-timestamp of the subsequent checkpoint.  If there is no subsequent checkpoint,
-`mkssi-fast-export` uses the mtime of the branch's project file.
+timestamp of the subsequent checkpoint for deletion commit timestamps.  If there
+is no subsequent checkpoint, `mkssi-fast-export` uses the mtime of the branch's
+project file.
 
 ### Authorship
 
@@ -234,7 +247,9 @@ this tool was the author.
 
 `mkssi-fast-export` will, in some cases, merge changes to individual files into
 commits that change multiple files.  Changes are only merged within a
-checkpoint, never across checkpoint boundaries.
+checkpoint, never across checkpoint boundaries.  The merging isn't always
+satisfactory, since MKSSI provides very little metadata that can be used to
+recognize that separate per-file changes are part of a set of related changes.
 
 Files that are added to the project within the same checkpoint are merged if the
 author is the same.  Since the revision history comment for added files is
@@ -292,10 +307,10 @@ message for a set of updated files might look something like this:
 ### Renaming to Change Capitalization
 
 `mkssi-fast-export` will detect when the capitalization of a directory name or
-file name has changed, and generate commits which explicitly rename the affected
-files.  If the files have RCS keywords that expand to a name or path which is
-affected by the rename, the file will be updated with the new expansion of those
-RCS keywords as part of the same rename commit.
+file name has implicitly changed, and generate commits which explicitly rename
+the affected files.  If the files have RCS keywords that expand to a name or
+path which is affected by the rename, the file will be updated with the new
+expansion of those RCS keywords as part of the same rename commit.
 
 These capitalization changes will be the only rename operations in the exported
 history, since MKSSI itself doesn't have rename operations.
@@ -303,16 +318,16 @@ history, since MKSSI itself doesn't have rename operations.
 ### Branches and Tags
 
 MKSSI branches are exported as Git branches.  MKSSI checkpoints are exported as
-Git tags.  MKSSI allows nearly any character in branch or checkpoint names; Git
-is more restrictive.  Thus, the MKSSI branch and checkpoint names might be
-munged to make legal Git branch and tag names.  Most frequently, spaces are
-changed to underscores.
+Git annotated tags.  MKSSI allows nearly any character in branch or checkpoint
+names; Git is more restrictive.  Thus, the MKSSI branch and checkpoint names
+might be munged to make legal Git branch and tag names.  Most frequently, spaces
+are changed to underscores.
 
 #### Demarcating Tags
 
 `mkssi-fast-export` will automatically tag the final commit on each branch with
-a tag named "BranchName\_mkssi".  The idea is to mark the boundary between the
-MKSSI history and the subsequent native Git history.
+an annotated tag named "BranchName\_mkssi".  The idea is to mark the boundary
+between the MKSSI history and the subsequent native Git history.
 
 ### RCS Keyword Expansion
 
@@ -321,10 +336,10 @@ MKSSI keywords like `$ProjectRevision$` and `$ProjectName$`.  The implementation
 is bug-for-bug compatible with MKSSI RCS keyword expansion, and thus does not
 always behave the same as GNU RCS keyword expansion.
 
-After the history is exported, as the project is updated from Git, the RCS
-keywords will no longer be updated.  Thus, it might be worthwhile to remove the
-RCS keywords from the source code soon after the history is exported.  This is
-left as an exercise for the reader.
+As the exported repository is updated with native Git commits, the RCS keywords
+will no longer be expanded, so their expanded values will become stale.  Thus,
+it might be worthwhile to remove the RCS keywords from the source code; for a
+large project, doing this via a script is recommended.
 
 ## Corrupted MKSSI Projects
 
@@ -335,9 +350,20 @@ check-ins require updating multiple files, which is not an atomic operation, so
 an interruption can lead to inconsistencies in the project.
 
 `mkssi-fast-export` will tolerate many forms of project corruption, printing a
-warning message and exporting what it can.  However, some forms of project
-corruption will result in a fatal error; if you run into this, you will need to
-update `mkssi-fast-export` to work around that form of corruption.
+warning message to stderr and exporting what it can.  However, some forms of
+project corruption will result in a fatal error; if you run into this, you will
+need to update `mkssi-fast-export` to work around that form of corruption.
+
+## Testing
+
+If you have a functional MKSSI installation, you can test the Git repository by
+comparing it to the MKSSI sandbox for the project.  Every branch in the Git
+repository should, when checked-out, have files that are byte-for-byte identical
+to the files in a sandbox for the equivalent MKSSI branch.  Every tag in the Git
+repository should, when checked-out, have files that are byte-for-byte identical
+to the files in a sandbox for the equivalent MKSSI checkpoint.  It is relatively
+straightforward to write a script which checks-out all of the branches and
+tags/checkpoints with both Git and MKSSI and then recursively diffs the trees.
 
 ## License and Derivative Code
 
@@ -348,7 +374,7 @@ following code was borrowed:
 Several data structures in interfaces.h -- `struct rcs_number`, `struct
 rcs_symbol`, `struct rcs_branch`, `struct rcs_version`, `struct rcs_text`,
 `struct rcs_patch`, and `struct rcs_file` -- were based on data structures from
-cvs-fast-export's cvs.h.
+`cvs-fast-export`'s cvs.h.
 
 lex.l and gram.y are both based on the `cvs-fast-export` files of the same name.
 They have been modified to remove support for RCS features not used by MKSSI, to
