@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, 2019 Datalight, Inc.
+ * Copyright (c) 2017, 2019 Tuxera US Inc
  * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * Utilities for working with numbered lines from an RCS file.

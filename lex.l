@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2006 by Keith Packard
- * Copyright (c) 2017, 2020 Datalight, Inc.
+ * Copyright (c) 2017, 2020 Tuxera US Inc
  * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * Lex/Flex parser for MKSSI-style RCS files.

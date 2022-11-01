@@ -1,4 +1,4 @@
-# Copyright (c) 2019 Datalight, Inc.
+# Copyright (c) 2019 Tuxera US Inc
 # SPDX-License-Identifier: GPL-2.0-or-later
 #
 # Makefile for mkssi-fast-export.
