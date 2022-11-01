@@ -39,18 +39,18 @@ Run `mkssi-fast-export --help` for a terse usage summary.
 
 To convert a repository, run something like the following sequence of commands:
 
-        $ mkdir foobar.git
-        $ cd foobar.git
-        $ git init --bare
-        $ mkssi-fast-export \
-                --rcs-dir=../foobar_mkssi_rcs \
-                --proj-dir=../foobar_mkssi_proj \
-                --authormap=../authors.txt \
-                --source-dir=x:/mks/projects/MKS/foobar \
-                --pname-dir=X:/MKS/foobar \
-                | git fast-import
-        $ git gc --aggressive --prune=now
-        $ git fsck
+	$ mkdir foobar.git
+	$ cd foobar.git
+	$ git init --bare
+	$ mkssi-fast-export \
+		--rcs-dir=../foobar_mkssi_rcs \
+		--proj-dir=../foobar_mkssi_proj \
+		--authormap=../authors.txt \
+		--source-dir=x:/mks/projects/MKS/foobar \
+		--pname-dir=X:/MKS/foobar \
+		| git fast-import
+	$ git gc --aggressive --prune=now
+	$ git fsck
 
 ### Parameters
 
@@ -365,7 +365,13 @@ to the files in a sandbox for the equivalent MKSSI checkpoint.  It is relatively
 straightforward to write a script which checks-out all of the branches and
 tags/checkpoints with both Git and MKSSI and then recursively diffs the trees.
 
-## License and Derivative Code
+## Copyright, License, and Derivative Code
+
+The code in this distribution is copyright:
+
+- (c) 2017, 2019-2020 by Tuxera US Inc
+- (c) 2012 by Eric S. Raymond
+- (c) 2006 by Keith Packard
 
 `mkssi-fast-export` borrows code from `cvs-fast-export`; it is thus a derivative
 work and, like the original, is licensed under the GNU GPL v2 or later.  The
